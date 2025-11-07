@@ -22,7 +22,7 @@ def login_screen():
             if username in users and users[username] == password:
                 st.success("Login realizado com sucesso!")
                 st.session_state["logged_in"] = True
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Usuário ou senha inválidos.")
         st.stop()
