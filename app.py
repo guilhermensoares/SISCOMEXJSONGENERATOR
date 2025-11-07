@@ -106,7 +106,7 @@ def tela_principal():
             Desenvolvido por Guilherme Soares - Supply Chain | Versão 1.0<br>
             🛠️ Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
-                <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> LinkedIn
+                <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
             </a>
         </div>
     """, unsafe_allow_html=True)
