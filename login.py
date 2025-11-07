@@ -15,5 +15,6 @@ def login_screen():
                 st.success("Login realizado com sucesso!")
                 st.session_state["logged_in"] = True
                 st.experimental_rerun()
+                return  # <- isso evita renderização dupla!
             else:
                 st.error("Usuário ou senha inválidos.")

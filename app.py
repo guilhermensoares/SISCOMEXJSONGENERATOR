@@ -14,6 +14,7 @@ def main():
         render_app()
 
 def render_app():
+    print("Renderizando app...")      # <- útil para debug
     logo = Image.open("logo-novo-preto.png")
     st.image(logo, width=130)
 
