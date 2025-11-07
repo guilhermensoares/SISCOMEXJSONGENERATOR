@@ -65,10 +65,15 @@ with abas[1]:
 st.markdown(
     """
     <hr style='margin-top: 3rem;'>
-    <div style='text-align: center; color: gray;'>
-        Desenvolvido por Guilherme Soares - Supply Chain | Versão 1.0<br>
-        🛠️ Powered by Python + Streamlit
+    <div style='text-align: center; color: gray; font-size: 0.9rem;'>
+        Desenvolvido por <strong>Guilherme Soares</strong> – Supply Chain<br>
+        <em>Versão 1.3 | 🛠️ Powered by Python + Streamlit</em><br><br>
+        <a href="https://br.linkedin.com/in/guilhermensoares" target="_blank" style="text-decoration: none;">
+            <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/linkedin/linkedin-original.svg" alt="LinkedIn" width="22" style="vertical-align: middle; margin-right: 6px;">
+            <span style="vertical-align: middle;">LinkedIn</span>
+        </a>
     </div>
     """,
     unsafe_allow_html=True
 )
+
