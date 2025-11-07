@@ -1,20 +1,14 @@
 import streamlit as st
-import json
-import os
 
 def login_screen():
     if "users" not in st.session_state:
-        st.session_state["users"] = {}
+        st.session_state.users = {"admin": "admin123"}
 
-    users = st.session_state["users"]
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
 
-    # Tenta carregar os usuários do arquivo
-    if os.path.exists("users.json"):
-        with open("users.json", "r") as f:
-            st.session_state["users"] = json.load(f)
-            users = st.session_state["users"]
+    st.markdown("<h2 style='text-align: center;'>🔐 Login - SISCOMEX JSON Generator</h2>", unsafe_allow_html=True)
 
-    st.markdown("## 🔐 Login - SISCOMEX JSON Generator")
     option = st.radio("Selecione uma opção:", ("Login", "Criar conta"))
 
     username = st.text_input("Usuário")
@@ -22,21 +16,15 @@ def login_screen():
 
     if st.button("Entrar"):
         if option == "Login":
-            if username in users and users[username] == password:
-                st.session_state["logged_in"] = True
-                st.session_state["username"] = username
+            if username in st.session_state.users and st.session_state.users[username] == password:
                 st.success("Login realizado com sucesso!")
-                st.rerun()  # <- substituto de experimental_rerun()
+                st.session_state.authenticated = True
+                st.rerun()
             else:
                 st.error("Usuário ou senha inválidos.")
-        else:  # Criar conta
-            if username in users:
-                st.error("Usuário já existe.")
+        elif option == "Criar conta":
+            if username in st.session_state.users:
+                st.warning("Usuário já existe. Escolha outro nome.")
             else:
-                users[username] = password
-                with open("users.json", "w") as f:
-                    json.dump(users, f)
-                st.session_state["logged_in"] = True
-                st.session_state["username"] = username
-                st.success("Conta criada e login realizado!")
-                st.rerun()  # <- substituto de experimental_rerun()
+                st.session_state.users[username] = password
+                st.success("Conta criada com sucesso! Você já pode fazer login.")
