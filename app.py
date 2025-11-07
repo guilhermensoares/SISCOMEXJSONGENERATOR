@@ -54,7 +54,7 @@ def tela_principal():
     resultados = []
 
     with st.form("form_json"):
-        cnpj = st.text_input("CNPJ Raiz", value="12345678", max_chars=8)
+        cnpj = st.text_input("CNPJ Raiz", value="04307549", max_chars=8)
         tamanho = st.number_input("Quantidade por lote", min_value=1, value=100)
 
         # Inputs de arquivos
