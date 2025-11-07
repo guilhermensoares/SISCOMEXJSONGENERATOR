@@ -2,78 +2,62 @@ from PIL import Image
 import streamlit as st
 from process_catalogo import processar_catalogo
 from process_vinculos import processar_vinculos
-from login import login_screen
 
+# Configuração da página
 st.set_page_config(page_title="SISCOMEX JSON Generator", layout="centered")
 
+# Tela de login
+from login import login_screen
+
+# Inicializa o estado do login
 if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
     login_screen()
-    st.stop()
+else:
+    st.sidebar.success(f"🔓 Logado como: {st.session_state['username']}")
 
-col1, col2 = st.columns([1, 4])
-with col1:
-    st.image("logo-novo-preto.png", width=120)
-with col2:
-    st.title("SISCOMEX JSON Generator")
-    st.caption("Transforme planilhas em JSONs válidos com facilidade 🚀")
+    # Logo
+    logo = Image.open("logo_king.png")
+    st.image(logo, width=130)
+    st.markdown("<h1 style='text-align: center;'>SISCOMEX JSON Generator</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Transforme planilhas em JSONs válidos com facilidade 🚀</p>", unsafe_allow_html=True)
 
-abas = st.tabs(["📦 Gerar Catálogo", "🔗 Gerar Vínculos"])
+    aba = st.tabs(["📦 Gerar Catálogo", "🔗 Gerar Vínculos"])
 
-with abas[0]:
-    st.header("📁 Entrada de dados")
-    excel_file = st.file_uploader("Arquivo Excel", type=["xlsx"])
-    cnpj = st.text_input("CNPJ", value="04307549")
-    tamanho = st.number_input("Tamanho do lote", min_value=1, value=5)
+    # 📦 Aba 1: Catálogo
+    with aba[0]:
+        st.markdown("### 📁 Entrada de dados")
+        file = st.file_uploader("Arquivo Excel", type=["xlsx"])
+        cnpj = st.text_input("CNPJ", max_chars=14)
+        lote = st.number_input("Tamanho do lote", min_value=1, step=1, value=5)
 
-    if st.button("🚀 Gerar JSONs"):
-        if not excel_file:
-            st.warning("Por favor, envie um arquivo Excel.")
-        else:
-            resultados = processar_catalogo(excel_file, cnpj, tamanho)
-            for nome, buffer in resultados:
-                st.download_button(
-                    label=f"📥 Baixar {nome}",
-                    file_name=nome,
-                    mime="application/json",
-                    data=buffer,
-                    key=nome
-                )
+        if st.button("⚙️ Gerar JSONs"):
+            if file and cnpj:
+                processar_catalogo(file, cnpj, lote)
+            else:
+                st.warning("Por favor, preencha todos os campos e selecione um arquivo.")
 
-with abas[1]:
-    st.header("🔗 Geração de vínculos")
-    csv_file = st.file_uploader("CSV exportado do SISCOMEX", type=["csv"])
-    excel_vinc = st.file_uploader("Base de dados (Excel)", type=["xlsx"], key="vinc")
-    cnpj = st.text_input("CNPJ da empresa", value="04307549", key="vinc_cnpj")
-    tamanho = st.number_input("Tamanho do lote", min_value=1, value=5, key="vinc_lote")
+    # 🔗 Aba 2: Vínculos
+    with aba[1]:
+        st.markdown("### 🔗 Geração de vínculos")
+        arquivo_siscomex = st.file_uploader("Arquivo Excel de Vínculos (exportado do SISCOMEX)", type=["xlsx"], key="vinc1")
+        arquivo_base = st.file_uploader("Arquivo Excel com Base de Dados (NCM, etc)", type=["xlsx"], key="vinc2")
 
-    if st.button("🔗 Gerar JSONs de Vínculos"):
-        if not csv_file or not excel_vinc:
-            st.warning("Envie ambos os arquivos.")
-        else:
-            arquivos = processar_vinculos(csv_file, excel_vinc, cnpj, tamanho)
-            for nome, conteudo in arquivos:
-                ext = "csv" if nome.endswith(".csv") else "json"
-                st.download_button(
-                    label=f"📥 Baixar {nome}",
-                    file_name=nome,
-                    mime="text/csv" if ext == "csv" else "application/json",
-                    data=conteudo,
-                    key=nome
-                )
+        if st.button("🔗 Gerar JSON de Vínculos"):
+            if arquivo_siscomex and arquivo_base:
+                processar_vinculos(arquivo_siscomex, arquivo_base)
+            else:
+                st.warning("Por favor, selecione os dois arquivos necessários.")
 
-# Rodapé com créditos
-st.markdown(
-    """
-    <hr style='margin-top: 3rem;'>
-    <div style='text-align: center; color: gray; font-size: 0.9rem;'>
-        Desenvolvido por <strong>Guilherme Soares</strong> – Supply Chain<br>
-        <em>Versão 1.3 | 🛠️ Powered by Python + Streamlit</em><br><br>
-        <a href="https://br.linkedin.com/in/guilhermensoares" target="_blank" style="text-decoration: none;">
-            <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/linkedin/linkedin-original.svg" alt="LinkedIn" width="22" style="vertical-align: middle; margin-right: 6px;">
-            <span style="vertical-align: middle;">LinkedIn</span>
-        </a>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
+    # Rodapé com créditos
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style='text-align: center; font-size: 14px;'>
+            Desenvolvido por <strong>Guilherme Soares</strong> |
+            <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank'>
+                <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align:middle;'> LinkedIn
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )

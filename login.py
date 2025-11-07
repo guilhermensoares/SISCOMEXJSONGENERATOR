@@ -1,32 +1,38 @@
 import streamlit as st
+import hashlib
 
-# Simula um banco de dados de usuários
-if "users" not in st.session_state:
-    st.session_state["users"] = {"admin": "admin123"}
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
 def login_screen():
-    st.title("🔐 Login - SISCOMEX JSON Generator")
+    # Inicializa as variáveis da sessão, se ainda não existirem
+    if "users" not in st.session_state:
+        st.session_state["users"] = {"admin": hash_password("admin123")}
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+    if "username" not in st.session_state:
+        st.session_state["username"] = ""
 
-    aba = st.radio("Selecione uma opção:", ["Login", "Criar conta"])
+    st.markdown("## 🔐 Login - SISCOMEX JSON Generator")
+    option = st.radio("Selecione uma opção:", ["Login", "Criar conta"])
 
-    if aba == "Login":
-        username = st.text_input("Usuário")
-        password = st.text_input("Senha", type="password")
-        if st.button("Entrar"):
+    username = st.text_input("Usuário")
+    password = st.text_input("Senha", type="password")
+
+    if st.button("Entrar" if option == "Login" else "Criar"):
+        if option == "Login":
             users = st.session_state["users"]
-            if username in users and users[username] == password:
+            if username in users and users[username] == hash_password(password):
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = username
                 st.success("Login realizado com sucesso!")
-                st.rerun()
+                st.experimental_rerun()
             else:
-                st.error("Usuário ou senha incorretos.")
-    else:
-        new_user = st.text_input("Novo usuário")
-        new_pass = st.text_input("Nova senha", type="password")
-        if st.button("Criar conta"):
-            if new_user in st.session_state["users"]:
-                st.warning("Usuário já existe.")
+                st.error("Usuário ou senha inválidos.")
+        else:
+            users = st.session_state["users"]
+            if username in users:
+                st.warning("Este usuário já existe.")
             else:
-                st.session_state["users"][new_user] = new_pass
-                st.success("Usuário criado! Faça login na aba anterior.")
+                st.session_state["users"][username] = hash_password(password)
+                st.success("Conta criada com sucesso! Faça login.")
