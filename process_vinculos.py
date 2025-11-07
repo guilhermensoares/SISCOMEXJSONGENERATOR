@@ -1,40 +1,79 @@
-import json
+# Versão final compatível com SISCOMEX
 import pandas as pd
-import streamlit as st
+import json
+from io import BytesIO
 
-def processar_vinculos(csv_file, base_file, cnpj):
+mapa_paises = {
+    "CHINA": "CN", "ALEMANHA": "DE", "EUA": "US", "ESTADOS UNIDOS": "US",
+    "ITÁLIA": "IT", "JAPÃO": "JP", "COREIA DO SUL": "KR", "TAIWAN": "TW",
+    "MÉXICO": "MX", "ÍNDIA": "IN", "REINO UNIDO": "GB", "FRANÇA": "FR",
+    "POLÔNIA": "PL", "ESPANHA": "ES", "PORTUGAL": "PT", "BRASIL": "BR"
+}
+
+def processar_vinculos(csv_file, planilha_file, cnpj_raiz="04307549", tamanho_lote=100):
     try:
-        df_siscomex = pd.read_csv(csv_file, sep=";")
-        df_base = pd.read_excel(base_file)
+        df_export = pd.read_csv(csv_file, sep=None, engine="python", encoding="utf-8-sig", dtype=str)
+    except Exception:
+        df_export = pd.read_csv(csv_file, sep=";", encoding="utf-8-sig", dtype=str)
 
-        lista_vinculos = []
+    df_base = pd.read_excel(planilha_file, sheet_name="Planilha1", dtype=str)
+    df_export["Código interno do produto"] = df_export["Código interno do produto"].astype(str).str.strip().str.upper()
+    df_base["COD. KING"] = df_base["COD. KING"].astype(str).str.strip().str.upper()
 
-        for _, row in df_siscomex.iterrows():
-            referencia = str(row["Referência"])
-            base_row = df_base[df_base["Referência"] == referencia]
+    df = df_export.merge(
+        df_base,
+        left_on="Código interno do produto",
+        right_on="COD. KING",
+        how="left",
+        indicator=True
+    )
 
-            if not base_row.empty:
-                produto = base_row.iloc[0]
-                vinculo = {
-                    "cnpj": cnpj,
-                    "codigo": str(produto["codigo"]),
-                    "referencia": referencia
-                }
-                lista_vinculos.append(vinculo)
+    lotes, saidas = [], []
+    lotes_df = [df[i:i + tamanho_lote] for i in range(0, len(df), tamanho_lote)]
 
-        json_data = {"vinculos": lista_vinculos}
-        nome_arquivo = "vinculos.json"
+    for i, lote in enumerate(lotes_df, start=1):
+        saida = []
+        seq = 1
+        for _, row in lote.iterrows():
+            try:
+                pais_nome = str(row.get("País", "")).strip().upper()
+                codigo_pais = mapa_paises.get(pais_nome, "XX")
+                cod_exportador = str(row.get("Código Operador Estrangeiro Exportador", "")).strip()
+                cod_fabricante = str(row.get("Código Operador Estrangeiro Fabricante", "")).strip()
+                codigo_produto = int(str(row.get("Código do produto", "")).strip())
+                fabricante_conhecido = bool(cod_fabricante)
 
-        with open(nome_arquivo, "w", encoding="utf-8") as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=4)
+                if cod_fabricante:
+                    saida.append({
+                        "seq": seq,
+                        "cpfCnpjRaiz": cnpj_raiz,
+                        "codigoOperadorEstrangeiro": cod_fabricante,
+                        "cpfCnpjFabricante": "00000000",
+                        "conhecido": fabricante_conhecido,
+                        "codigoProduto": codigo_produto,
+                        "codigoPais": codigo_pais
+                    })
+                    seq += 1
 
-        st.success("JSON de vínculos gerado com sucesso!")
-        st.download_button(
-            label="📥 Baixar vinculos.json",
-            data=json.dumps(json_data, ensure_ascii=False, indent=4),
-            file_name=nome_arquivo,
-            mime="application/json"
-        )
+                if cod_exportador and cod_exportador != cod_fabricante:
+                    saida.append({
+                        "seq": seq,
+                        "cpfCnpjRaiz": cnpj_raiz,
+                        "codigoOperadorEstrangeiro": cod_exportador,
+                        "cpfCnpjFabricante": "00000000",
+                        "conhecido": True,
+                        "codigoProduto": codigo_produto,
+                        "codigoPais": codigo_pais
+                    })
+                    seq += 1
 
-    except Exception as e:
-        st.error(f"Ocorreu um erro ao gerar os vínculos: {str(e)}")
+            except Exception as e:
+                print(f"⚠️ Erro ao processar linha: {e}")
+
+        buffer = BytesIO()
+        json.dump(saida, buffer, ensure_ascii=False, indent=4)
+        buffer.seek(0)
+        nome = f"VINCULOS_FABRICANTE_EXPORTADOR_Lote{i}.json"
+        saidas.append((nome, buffer))
+
+    return saidas

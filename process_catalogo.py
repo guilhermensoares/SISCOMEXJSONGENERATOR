@@ -1,42 +1,94 @@
-import json
+# Versão final ajustada conforme script V1.4
 import pandas as pd
-import streamlit as st
+import json
+import math
+from io import BytesIO
 
-def processar_catalogo(file, cnpj, lote):
-    try:
-        df = pd.read_excel(file)
-        total_linhas = len(df)
-        total_lotes = (total_linhas // lote) + int(total_linhas % lote != 0)
+mapa_paises = {
+    "CHINA": "CN", "CHINA, REPÚBLICA POPULAR": "CN",
+    "ALEMANHA": "DE", "ESTADOS UNIDOS": "US", "EUA": "US",
+    "BRASIL": "BR", "ITÁLIA": "IT", "JAPÃO": "JP", "COREIA DO SUL": "KR",
+    "TAIWAN": "TW", "MÉXICO": "MX", "ÍNDIA": "IN", "REINO UNIDO": "GB",
+    "FRANÇA": "FR", "POLÔNIA": "PL", "ESPANHA": "ES", "PORTUGAL": "PT",
+    "TURQUIA": "TR", "ÁUSTRIA": "AT", "REPÚBLICA TCHECA": "CZ",
+    "HUNGRIA": "HU", "PAÍSES BAIXOS": "NL", "SUÉCIA": "SE", "SUÍÇA": "CH",
+    "TAILÂNDIA": "TH"
+}
 
-        for i in range(total_lotes):
-            inicio = i * lote
-            fim = min(inicio + lote, total_linhas)
-            df_lote = df.iloc[inicio:fim]
+def processar_catalogo(file, cnpj_raiz="04307549", tamanho_lote=100):
+    df = pd.read_excel(file, sheet_name="Planilha1")
 
-            lista_produtos = []
-            for _, row in df_lote.iterrows():
-                produto = {
-                    "cnpj": cnpj,
-                    "codigo": str(row["codigo"]),
-                    "descricao": row["descricao"],
-                    "ncm": str(row["ncm"]),
-                    "unidade_medida": row["unidade_medida"],
-                    "preco": float(row["preco"])
-                }
-                lista_produtos.append(produto)
+    produtos, seq = [], 1
+    for idx, linha in df.iterrows():
+        try:
+            cod_interno = str(linha.get("COD. KING", "")).strip()
+            ncm = str(linha.get("NCM", "")).replace(".", "").replace("-", "").strip()
+            denominacao = str(linha.get("DESCRIÇÃO EM PORTUGUÊS", "")).strip()
+            descricao = str(linha.get("DESCRIÇÃO", "")).strip()
 
-            json_data = {"produtos": lista_produtos}
-            nome_arquivo = f"catalogo_lote_{i+1}.json"
-            with open(nome_arquivo, "w", encoding="utf-8") as f:
-                json.dump(json_data, f, ensure_ascii=False, indent=4)
+            pais_nome = str(linha.get("PAIS", "")).upper().strip()
+            codigo_pais = mapa_paises.get(pais_nome, "XX") if pais_nome else "XX"
+            cod_exportador = str(linha.get("Código Operador Estrangeiro Exportador", "")).strip()
+            cod_fabricante = str(linha.get("Código Operador Estrangeiro Fabricante", "")).strip()
 
-            st.success(f"Catálogo gerado: {nome_arquivo}")
-            st.download_button(
-                label=f"📥 Baixar {nome_arquivo}",
-                data=json.dumps(json_data, ensure_ascii=False, indent=4),
-                file_name=nome_arquivo,
-                mime="application/json"
-            )
+            fabricantes_produtores = []
+            if cod_exportador:
+                fabricantes_produtores.append({"codigoPais": codigo_pais, "codigo": cod_exportador})
+            if cod_fabricante:
+                fabricantes_produtores.append({"codigoPais": codigo_pais, "codigo": cod_fabricante})
 
-    except Exception as e:
-        st.error(f"Ocorreu um erro: {str(e)}")
+            atributos = []
+            for i in range(1, 11):
+                col_attr = f"Atributo {i}"
+                col_val = f"Valor Atributo {i}"
+                attr = str(linha.get(col_attr, "")).strip()
+                val = linha.get(col_val, "")
+
+                if not attr or pd.isna(val):
+                    continue
+
+                val = str(val).strip()
+                if val.endswith(".0"):
+                    val = val[:-2]
+                if val.isdigit() and len(val) == 1:
+                    val = val.zfill(2)
+
+                atributos.append({"atributo": attr, "valor": val})
+
+            produto = {
+                "seq": seq,
+                "modalidade": "IMPORTACAO",
+                "cpfCnpjRaiz": cnpj_raiz,
+                "situacao": "Ativado",
+                "ncm": ncm,
+                "denominacao": denominacao,
+                "descricao": descricao,
+                "atributos": atributos,
+                "atributosMultivalorados": [],
+                "atributosCompostos": [],
+                "atributosCompostosMultivalorados": [],
+                "codigosInterno": [cod_interno],
+                "fabricantesProdutores": fabricantes_produtores
+            }
+
+            produtos.append(produto)
+            seq += 1
+
+        except Exception as e:
+            print(f"⚠️ Erro na linha {idx+2}: {e}")
+
+    # Lotes
+    arquivos = []
+    total = len(produtos)
+    num_arquivos = math.ceil(total / tamanho_lote)
+
+    for i in range(num_arquivos):
+        inicio, fim = i * tamanho_lote, (i + 1) * tamanho_lote
+        lote = produtos[inicio:fim]
+        buffer = BytesIO()
+        json.dump(lote, buffer, ensure_ascii=False, indent=4)
+        buffer.seek(0)
+        nome_arquivo = f"CATP_JSON_Lote{i+1}.json"
+        arquivos.append((nome_arquivo, buffer))
+
+    return arquivos
