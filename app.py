@@ -1,5 +1,5 @@
 import streamlit as st
-from login import login_form
+from login import login_screen
 from process_catalogo import processar_catalogo
 from process_vinculos import processar_vinculos
 
@@ -12,7 +12,7 @@ if "logado" not in st.session_state:
     st.session_state.logado = False
 
 if not st.session_state.logado:
-    login_form()
+    login_screen()
 else:
     # Interface
     st.markdown("<h1 style='text-align: center;'>📦 Gerador de JSON SISCOMEX</h1>", unsafe_allow_html=True)
