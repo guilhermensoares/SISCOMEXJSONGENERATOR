@@ -18,7 +18,7 @@ def login_screen():
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = username
                 st.success("Login realizado com sucesso!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Usuário ou senha incorretos.")
     else:
