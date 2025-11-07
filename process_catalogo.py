@@ -1,4 +1,3 @@
-# Versão final ajustada conforme script V1.4
 import pandas as pd
 import json
 import math
@@ -15,10 +14,21 @@ mapa_paises = {
     "TAILÂNDIA": "TH"
 }
 
-def processar_catalogo(file, cnpj_raiz="04307549", tamanho_lote=100):
-    df = pd.read_excel(file, sheet_name="Planilha1")
+def processar_catalogo(planilha_file, cnpj_raiz: str, tamanho_lote: int = 5):
+    df = pd.read_excel(planilha_file, sheet_name="Planilha1")
 
-    produtos, seq = [], 1
+    pares_cols = [
+        (f"Atributo {i}", f"Valor Atributo {i}")
+        for i in range(1, 11)
+        if f"Atributo {i}" in df.columns and f"Valor Atributo {i}" in df.columns
+    ]
+
+    if not pares_cols:
+        raise ValueError("Nenhuma coluna de atributo encontrada na planilha.")
+
+    produtos = []
+    seq = 1
+
     for idx, linha in df.iterrows():
         try:
             cod_interno = str(linha.get("COD. KING", "")).strip()
@@ -38,16 +48,13 @@ def processar_catalogo(file, cnpj_raiz="04307549", tamanho_lote=100):
                 fabricantes_produtores.append({"codigoPais": codigo_pais, "codigo": cod_fabricante})
 
             atributos = []
-            for i in range(1, 11):
-                col_attr = f"Atributo {i}"
-                col_val = f"Valor Atributo {i}"
-                attr = str(linha.get(col_attr, "")).strip()
-                val = linha.get(col_val, "")
-
-                if not attr or pd.isna(val):
+            for col_attr, col_val in pares_cols:
+                attr = str(linha[col_attr]).strip() if pd.notna(linha.get(col_attr)) else ""
+                val_bruto = linha.get(col_val, "")
+                if pd.isna(val_bruto) or not attr:
                     continue
 
-                val = str(val).strip()
+                val = str(val_bruto).strip()
                 if val.endswith(".0"):
                     val = val[:-2]
                 if val.isdigit() and len(val) == 1:
@@ -75,20 +82,20 @@ def processar_catalogo(file, cnpj_raiz="04307549", tamanho_lote=100):
             seq += 1
 
         except Exception as e:
-            print(f"⚠️ Erro na linha {idx+2}: {e}")
+            print(f"Erro na linha {idx + 2}: {e}")
 
-    # Lotes
-    arquivos = []
     total = len(produtos)
     num_arquivos = math.ceil(total / tamanho_lote)
+    resultados = []
 
     for i in range(num_arquivos):
         inicio, fim = i * tamanho_lote, (i + 1) * tamanho_lote
         lote = produtos[inicio:fim]
+        nome = f"{cnpj_raiz}_CATALOGO_Lote{i + 1}.json"
         buffer = BytesIO()
-        json.dump(lote, buffer, ensure_ascii=False, indent=4)
+        json_str = json.dumps(lote, ensure_ascii=False, indent=4)
+        buffer.write(json_str.encode("utf-8"))
         buffer.seek(0)
-        nome_arquivo = f"CATP_JSON_Lote{i+1}.json"
-        arquivos.append((nome_arquivo, buffer))
+        resultados.append((nome, buffer))
 
-    return arquivos
+    return resultados

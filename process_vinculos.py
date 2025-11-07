@@ -1,6 +1,6 @@
-# Versão final compatível com SISCOMEX
 import pandas as pd
 import json
+import math
 from io import BytesIO
 
 mapa_paises = {
@@ -10,13 +10,14 @@ mapa_paises = {
     "POLÔNIA": "PL", "ESPANHA": "ES", "PORTUGAL": "PT", "BRASIL": "BR"
 }
 
-def processar_vinculos(csv_file, planilha_file, cnpj_raiz="04307549", tamanho_lote=100):
+def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int = 100):
     try:
         df_export = pd.read_csv(csv_file, sep=None, engine="python", encoding="utf-8-sig", dtype=str)
     except Exception:
         df_export = pd.read_csv(csv_file, sep=";", encoding="utf-8-sig", dtype=str)
 
-    df_base = pd.read_excel(planilha_file, sheet_name="Planilha1", dtype=str)
+    df_base = pd.read_excel(excel_file, sheet_name="Planilha1", dtype=str)
+
     df_export["Código interno do produto"] = df_export["Código interno do produto"].astype(str).str.strip().str.upper()
     df_base["COD. KING"] = df_base["COD. KING"].astype(str).str.strip().str.upper()
 
@@ -28,52 +29,55 @@ def processar_vinculos(csv_file, planilha_file, cnpj_raiz="04307549", tamanho_lo
         indicator=True
     )
 
-    lotes, saidas = [], []
     lotes_df = [df[i:i + tamanho_lote] for i in range(0, len(df), tamanho_lote)]
+    resultados = []
 
     for i, lote in enumerate(lotes_df, start=1):
         saida = []
         seq = 1
+
         for _, row in lote.iterrows():
+            pais_nome = str(row.get("País", "")).strip().upper()
+            codigo_pais = mapa_paises.get(pais_nome, "XX")
+
+            cod_exportador = str(row.get("Código Operador Estrangeiro Exportador", "")).strip()
+            cod_fabricante = str(row.get("Código Operador Estrangeiro Fabricante", "")).strip()
+            fabricante_conhecido = bool(cod_fabricante)
+
             try:
-                pais_nome = str(row.get("País", "")).strip().upper()
-                codigo_pais = mapa_paises.get(pais_nome, "XX")
-                cod_exportador = str(row.get("Código Operador Estrangeiro Exportador", "")).strip()
-                cod_fabricante = str(row.get("Código Operador Estrangeiro Fabricante", "")).strip()
                 codigo_produto = int(str(row.get("Código do produto", "")).strip())
-                fabricante_conhecido = bool(cod_fabricante)
+            except Exception:
+                continue
 
-                if cod_fabricante:
-                    saida.append({
-                        "seq": seq,
-                        "cpfCnpjRaiz": cnpj_raiz,
-                        "codigoOperadorEstrangeiro": cod_fabricante,
-                        "cpfCnpjFabricante": "00000000",
-                        "conhecido": fabricante_conhecido,
-                        "codigoProduto": codigo_produto,
-                        "codigoPais": codigo_pais
-                    })
-                    seq += 1
+            if cod_fabricante:
+                saida.append({
+                    "seq": seq,
+                    "cpfCnpjRaiz": cnpj_raiz,
+                    "codigoOperadorEstrangeiro": cod_fabricante,
+                    "cpfCnpjFabricante": "00000000",
+                    "conhecido": fabricante_conhecido,
+                    "codigoProduto": codigo_produto,
+                    "codigoPais": codigo_pais
+                })
+                seq += 1
 
-                if cod_exportador and cod_exportador != cod_fabricante:
-                    saida.append({
-                        "seq": seq,
-                        "cpfCnpjRaiz": cnpj_raiz,
-                        "codigoOperadorEstrangeiro": cod_exportador,
-                        "cpfCnpjFabricante": "00000000",
-                        "conhecido": True,
-                        "codigoProduto": codigo_produto,
-                        "codigoPais": codigo_pais
-                    })
-                    seq += 1
+            if cod_exportador and cod_exportador != cod_fabricante:
+                saida.append({
+                    "seq": seq,
+                    "cpfCnpjRaiz": cnpj_raiz,
+                    "codigoOperadorEstrangeiro": cod_exportador,
+                    "cpfCnpjFabricante": "00000000",
+                    "conhecido": True,
+                    "codigoProduto": codigo_produto,
+                    "codigoPais": codigo_pais
+                })
+                seq += 1
 
-            except Exception as e:
-                print(f"⚠️ Erro ao processar linha: {e}")
-
+        nome = f"{cnpj_raiz}_VINCULOS_FABRICANTE_EXPORTADOR_Lote{i}.json"
         buffer = BytesIO()
-        json.dump(saida, buffer, ensure_ascii=False, indent=4)
+        json_str = json.dumps(saida, ensure_ascii=False, indent=4)
+        buffer.write(json_str.encode("utf-8"))
         buffer.seek(0)
-        nome = f"VINCULOS_FABRICANTE_EXPORTADOR_Lote{i}.json"
-        saidas.append((nome, buffer))
+        resultados.append((nome, buffer))
 
-    return saidas
+    return resultados

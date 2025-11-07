@@ -1,63 +1,107 @@
 import streamlit as st
-from PIL import Image
-from login import login_screen
 from process_catalogo import processar_catalogo
 from process_vinculos import processar_vinculos
+from io import BytesIO
+import base64
 
-def main():
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
+# Configurações da página
+st.set_page_config(page_title="King Imports - SISCOMEX JSON Generator", layout="centered")
 
-    if not st.session_state["logged_in"]:
-        login_screen()
-    else:
-        render_app()
+# Função para carregar e exibir logo centralizada
+def exibir_logo():
+    with open("logo-novo-preto.png", "rb") as img_file:
+        logo_bytes = img_file.read()
+        logo_base64 = base64.b64encode(logo_bytes).decode()
+    st.markdown(
+        f"""
+        <div style="text-align:center">
+            <img src="data:image/png;base64,{logo_base64}" width="250"/>
+            <h2 style="margin-top: 10px;">SISCOMEX JSON Generator</h2>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-def render_app():
-    print("Renderizando app...")      # <- útil para debug
-    logo = Image.open("logo-novo-preto.png")
-    st.image(logo, width=130)
+# Autenticação simples com credenciais em memória
+def autenticar(usuario, senha):
+    usuarios_validos = {
+        "admin": "1234",
+        "estagiaria": "1234"
+    }
+    return usuarios_validos.get(usuario) == senha
 
-    st.markdown("<h1 style='text-align: center;'>SISCOMEX JSON Generator</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center;'>Transforme planilhas em JSONs válidos com facilidade 🚀</p>", unsafe_allow_html=True)
+# Login
+def tela_login():
+    st.markdown("## Acesso Restrito")
+    usuario = st.text_input("Usuário", placeholder="Digite seu usuário")
+    senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+    if st.button("Entrar"):
+        if autenticar(usuario, senha):
+            st.session_state["autenticado"] = True
+            st.experimental_rerun()
+        else:
+            st.error("Usuário ou senha incorretos.")
 
-    aba = st.tabs(["📁 Gerar Catálogo", "🔗 Gerar Vínculos"])
+# Tela principal com abas
+def tela_principal():
+    exibir_logo()
 
-    with aba[0]:
-        st.markdown("### 📥 Entrada de dados")
-        file = st.file_uploader("Arquivo Excel", type=["xlsx"])
-        cnpj = st.text_input("CNPJ", value="04307549", max_chars=14, key="cnpj_catalogo")
-        lote = st.number_input("Tamanho do lote", min_value=1, step=1, value=100)
+    aba = st.radio("Escolha o tipo de geração:", ["Catálogo de Produtos", "Vínculo Fabricante–Exportador"], horizontal=True)
 
-        if st.button("🚀 Gerar JSONs"):
-            if file and cnpj:
-                processar_catalogo(file, cnpj, lote)
-            else:
-                st.warning("Por favor, preencha todos os campos e selecione um arquivo.")
+    with st.form("form_json"):
+        cnpj = st.text_input("CNPJ Raiz", value="12345678", max_chars=8)
+        tamanho = st.number_input("Quantidade por lote", min_value=1, value=100)
 
-    with aba[1]:
-        st.markdown("### 🔄 Geração de vínculos")
-        csv_file = st.file_uploader("CSV exportado do SISCOMEX", type=["csv"])
-        excel_file = st.file_uploader("Sua base de dados", type=["xlsx"])
-        cnpj_vinculos = st.text_input("CNPJ", value="04307549", max_chars=14, key="cnpj_vinculos")
+        if aba == "Catálogo de Produtos":
+            st.markdown("### Upload da Planilha de Itens (Excel - Base Atualizada)")
+            planilha = st.file_uploader("Selecione a planilha (.xlsx)", type=["xlsx"], key="planilha")
+            if st.form_submit_button("Gerar JSON"):
+                if planilha and cnpj:
+                    resultados = processar_catalogo(planilha, cnpj, tamanho)
+                    for nome_arquivo, buffer in resultados:
+                        st.download_button(
+                            label=f"📥 Baixar {nome_arquivo}",
+                            data=buffer,
+                            file_name=nome_arquivo,
+                            mime="application/json"
+                        )
+                else:
+                    st.error("Por favor, envie o arquivo Excel e preencha o CNPJ.")
 
-        if st.button("🔗 Gerar JSON de Vínculos"):
-            if csv_file and excel_file and cnpj_vinculos:
-                processar_vinculos(csv_file, excel_file, cnpj_vinculos)
-            else:
-                st.warning("Por favor, preencha todos os campos e selecione os arquivos.")
+        elif aba == "Vínculo Fabricante–Exportador":
+            st.markdown("### Upload dos Arquivos de Vínculo")
+            csv = st.file_uploader("CSV exportado do SISCOMEX", type=["csv"], key="csv_vinculo")
+            excel = st.file_uploader("Base de dados King Imports (planilha Excel)", type=["xlsx"], key="excel_vinculo")
+            if st.form_submit_button("Gerar JSON"):
+                if csv and excel and cnpj:
+                    resultados = processar_vinculos(csv, excel, cnpj, tamanho)
+                    for nome_arquivo, buffer in resultados:
+                        st.download_button(
+                            label=f"📥 Baixar {nome_arquivo}",
+                            data=buffer,
+                            file_name=nome_arquivo,
+                            mime="application/json"
+                        )
+                else:
+                    st.error("Por favor, envie ambos os arquivos e preencha o CNPJ.")
 
+    # Créditos no rodapé
     st.markdown("""
-    <hr>
-    <div style='text-align: center; font-size: 14px;'>
-        Desenvolvido por <b>Guilherme Soares</b> 🧠 | Supply Chain | Versão 1.0 <br>
-        🔧 Powered by Python + Streamlit <br><br>
-        <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank'>
-            <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='20' style='vertical-align:middle; margin-right:8px;'/>
-            LinkedIn
-        </a>
-    </div>
+        <hr style="margin-top: 40px; margin-bottom: 10px;">
+        <div style='text-align: center; font-size: 14px;'>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 1.0<br>
+            🛠️ Powered by Python + Streamlit |
+            <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
+                <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> LinkedIn
+            </a>
+        </div>
     """, unsafe_allow_html=True)
 
-if __name__ == "__main__":
-    main()
+# Roteamento
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+if not st.session_state["autenticado"]:
+    tela_login()
+else:
+    tela_principal()
