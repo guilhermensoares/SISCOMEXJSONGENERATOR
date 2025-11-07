@@ -1,38 +1,42 @@
 import streamlit as st
-import hashlib
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+import json
+import os
 
 def login_screen():
-    # Inicializa as variáveis da sessão, se ainda não existirem
     if "users" not in st.session_state:
-        st.session_state["users"] = {"admin": hash_password("admin123")}
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
-    if "username" not in st.session_state:
-        st.session_state["username"] = ""
+        st.session_state["users"] = {}
+
+    users = st.session_state["users"]
+
+    # Tenta carregar os usuários do arquivo
+    if os.path.exists("users.json"):
+        with open("users.json", "r") as f:
+            st.session_state["users"] = json.load(f)
+            users = st.session_state["users"]
 
     st.markdown("## 🔐 Login - SISCOMEX JSON Generator")
-    option = st.radio("Selecione uma opção:", ["Login", "Criar conta"])
+    option = st.radio("Selecione uma opção:", ("Login", "Criar conta"))
 
     username = st.text_input("Usuário")
     password = st.text_input("Senha", type="password")
 
-    if st.button("Entrar" if option == "Login" else "Criar"):
+    if st.button("Entrar"):
         if option == "Login":
-            users = st.session_state["users"]
-            if username in users and users[username] == hash_password(password):
+            if username in users and users[username] == password:
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = username
                 st.success("Login realizado com sucesso!")
-                st.experimental_rerun()
+                st.rerun()  # <- substituto de experimental_rerun()
             else:
                 st.error("Usuário ou senha inválidos.")
-        else:
-            users = st.session_state["users"]
+        else:  # Criar conta
             if username in users:
-                st.warning("Este usuário já existe.")
+                st.error("Usuário já existe.")
             else:
-                st.session_state["users"][username] = hash_password(password)
-                st.success("Conta criada com sucesso! Faça login.")
+                users[username] = password
+                with open("users.json", "w") as f:
+                    json.dump(users, f)
+                st.session_state["logged_in"] = True
+                st.session_state["username"] = username
+                st.success("Conta criada e login realizado!")
+                st.rerun()  # <- substituto de experimental_rerun()
