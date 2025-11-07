@@ -1,30 +1,28 @@
 import streamlit as st
 
+# Dicionário de usuários (você pode expandir isso depois)
+def get_users():
+    return {
+        "admin": "admin123"
+    }
+
 def login_screen():
-    if "users" not in st.session_state:
-        st.session_state.users = {"admin": "admin123"}
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
 
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
+    if not st.session_state["logged_in"]:
+        st.markdown("## 🔐 Login - SISCOMEX JSON Generator")
+        opcao = st.radio("Selecione uma opção:", ["Login", "Criar conta"])
 
-    st.markdown("<h2 style='text-align: center;'>🔐 Login - SISCOMEX JSON Generator</h2>", unsafe_allow_html=True)
+        username = st.text_input("Usuário")
+        password = st.text_input("Senha", type="password")
 
-    option = st.radio("Selecione uma opção:", ("Login", "Criar conta"))
-
-    username = st.text_input("Usuário")
-    password = st.text_input("Senha", type="password")
-
-    if st.button("Entrar"):
-        if option == "Login":
-            if username in st.session_state.users and st.session_state.users[username] == password:
+        if st.button("Entrar"):
+            users = get_users()
+            if username in users and users[username] == password:
                 st.success("Login realizado com sucesso!")
-                st.session_state.authenticated = True
-                st.rerun()
+                st.session_state["logged_in"] = True
+                st.experimental_rerun()
             else:
                 st.error("Usuário ou senha inválidos.")
-        elif option == "Criar conta":
-            if username in st.session_state.users:
-                st.warning("Usuário já existe. Escolha outro nome.")
-            else:
-                st.session_state.users[username] = password
-                st.success("Conta criada com sucesso! Você já pode fazer login.")
+        st.stop()
