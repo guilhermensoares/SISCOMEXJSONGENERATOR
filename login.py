@@ -1,65 +1,32 @@
 import streamlit as st
-import json
-import hashlib
-import os
 
-USERS_FILE = "users.json"
+# Simula um banco de dados de usuários
+if "users" not in st.session_state:
+    st.session_state["users"] = {"admin": "admin123"}
 
-# Cria o arquivo se não existir
-if not os.path.exists(USERS_FILE):
-    with open(USERS_FILE, "w") as f:
-        json.dump({}, f)
-
-# Funções auxiliares
-def load_users():
-    with open(USERS_FILE, "r") as f:
-        return json.load(f)
-
-def save_users(users):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f)
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def check_login(username, password):
-    users = load_users()
-    if username in users:
-        return users[username] == hash_password(password)
-    return False
-
-def add_user(username, password):
-    users = load_users()
-    if username in users:
-        return False
-    users[username] = hash_password(password)
-    save_users(users)
-    return True
-
-# Interface de login
 def login_screen():
-    st.title("🔐 SISCOMEX JSON Generator - Login")
+    st.title("🔐 Login - SISCOMEX JSON Generator")
 
-    menu = st.sidebar.radio("Menu", ["Login", "Cadastrar"])
+    aba = st.radio("Selecione uma opção:", ["Login", "Criar conta"])
 
-    if menu == "Login":
-        st.subheader("Acesse sua conta")
+    if aba == "Login":
         username = st.text_input("Usuário")
         password = st.text_input("Senha", type="password")
         if st.button("Entrar"):
-            if check_login(username, password):
+            users = st.session_state["users"]
+            if username in users and users[username] == password:
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = username
+                st.success("Login realizado com sucesso!")
                 st.experimental_rerun()
             else:
-                st.error("Usuário ou senha inválidos.")
-
-    elif menu == "Cadastrar":
-        st.subheader("Criar nova conta")
+                st.error("Usuário ou senha incorretos.")
+    else:
         new_user = st.text_input("Novo usuário")
         new_pass = st.text_input("Nova senha", type="password")
         if st.button("Criar conta"):
-            if add_user(new_user, new_pass):
-                st.success("Usuário criado com sucesso! Faça login no menu lateral.")
+            if new_user in st.session_state["users"]:
+                st.warning("Usuário já existe.")
             else:
-                st.warning("Este usuário já existe.")
+                st.session_state["users"][new_user] = new_pass
+                st.success("Usuário criado! Faça login na aba anterior.")
