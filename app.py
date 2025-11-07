@@ -1,68 +1,62 @@
 import streamlit as st
+from PIL import Image
 from login import login_screen
 from process_catalogo import processar_catalogo
 from process_vinculos import processar_vinculos
 
-st.set_page_config(
-    page_title="Gerador SISCOMEX JSON",
-    layout="wide",
-)
+def main():
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
 
-if "logado" not in st.session_state:
-    st.session_state.logado = False
+    if not st.session_state["logged_in"]:
+        login_screen()
+    else:
+        render_app()
 
-if not st.session_state.logado:
-    login_screen()
-else:
-    # Interface
-    st.markdown("<h1 style='text-align: center;'>📦 Gerador de JSON SISCOMEX</h1>", unsafe_allow_html=True)
+def render_app():
+    logo = Image.open("logo-novo-preto.png")
+    st.image(logo, width=130)
 
-    aba = st.selectbox("Escolha a função desejada:", ["Gerar Catálogo de Produtos", "Gerar Vínculos Fabricante–Exportador"])
+    st.markdown("<h1 style='text-align: center;'>SISCOMEX JSON Generator</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Transforme planilhas em JSONs válidos com facilidade 🚀</p>", unsafe_allow_html=True)
 
-    if aba == "Gerar Catálogo de Produtos":
-        st.header("📁 Upload da planilha de produtos")
-        excel_file = st.file_uploader("Selecione o arquivo Excel com os produtos", type=["xlsx"])
+    aba = st.tabs(["📁 Gerar Catálogo", "🔗 Gerar Vínculos"])
 
-        col1, col2 = st.columns(2)
-        with col1:
-            cnpj = st.text_input("CNPJ Raiz (8 dígitos)", value="04307549")
-        with col2:
-            tamanho = st.number_input("Tamanho do lote", min_value=1, value=100, step=1)
+    with aba[0]:
+        st.markdown("### 📥 Entrada de dados")
+        file = st.file_uploader("Arquivo Excel", type=["xlsx"])
+        cnpj = st.text_input("CNPJ", value="04307549", max_chars=14, key="cnpj_catalogo")
+        lote = st.number_input("Tamanho do lote", min_value=1, step=1, value=100)
 
-        if excel_file and st.button("📤 Gerar JSONs de Catálogo"):
-            with st.spinner("Processando catálogo..."):
-                resultados = processar_catalogo(excel_file, cnpj, tamanho)
-                st.success(f"{len(resultados)} lote(s) gerado(s).")
-                for nome, buffer in resultados:
-                    st.download_button(label=f"📥 Baixar {nome}", data=buffer, file_name=nome, mime="application/json")
+        if st.button("🚀 Gerar JSONs"):
+            if file and cnpj:
+                processar_catalogo(file, cnpj, lote)
+            else:
+                st.warning("Por favor, preencha todos os campos e selecione um arquivo.")
 
-    elif aba == "Gerar Vínculos Fabricante–Exportador":
-        st.header("📁 Upload dos arquivos necessários")
+    with aba[1]:
+        st.markdown("### 🔄 Geração de vínculos")
         csv_file = st.file_uploader("CSV exportado do SISCOMEX", type=["csv"])
-        excel_file = st.file_uploader("Planilha base de produtos", type=["xlsx"])
+        excel_file = st.file_uploader("Sua base de dados", type=["xlsx"])
+        cnpj_vinculos = st.text_input("CNPJ", value="04307549", max_chars=14, key="cnpj_vinculos")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            cnpj = st.text_input("CNPJ Raiz (8 dígitos)", value="04307549", key="cnpj_vinculos")
-        with col2:
-            tamanho = st.number_input("Tamanho do lote", min_value=1, value=100, step=1, key="lote_vinculos")
+        if st.button("🔗 Gerar JSON de Vínculos"):
+            if csv_file and excel_file and cnpj_vinculos:
+                processar_vinculos(csv_file, excel_file, cnpj_vinculos)
+            else:
+                st.warning("Por favor, preencha todos os campos e selecione os arquivos.")
 
-        if csv_file and excel_file and st.button("📤 Gerar JSONs de Vínculos"):
-            with st.spinner("Processando vínculos..."):
-                resultados = processar_vinculos(csv_file, excel_file, cnpj, tamanho)
-                st.success(f"{len(resultados)} lote(s) gerado(s).")
-                for nome, buffer in resultados:
-                    st.download_button(label=f"📥 Baixar {nome}", data=buffer, file_name=nome, mime="application/json")
-
-    # Créditos no rodapé
     st.markdown("""
-        <hr>
-        <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por <b>Guilherme Soares</b> – Supply Chain | Versão 1.0 <br>
-            🛠️ Powered by Python + Streamlit <br><br>
-            <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank'>
-                <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='20' style='vertical-align:middle; margin-right:5px;'>
-                LinkedIn
-            </a>
-        </div>
+    <hr>
+    <div style='text-align: center; font-size: 14px;'>
+        Desenvolvido por <b>Guilherme Soares</b> 🧠 | Supply Chain | Versão 1.0 <br>
+        🔧 Powered by Python + Streamlit <br><br>
+        <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank'>
+            <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='20' style='vertical-align:middle; margin-right:8px;'/>
+            LinkedIn
+        </a>
+    </div>
     """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()

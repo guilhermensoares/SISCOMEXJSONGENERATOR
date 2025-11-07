@@ -1,28 +1,19 @@
 import streamlit as st
 
-# Dicionário de usuários (você pode expandir isso depois)
-def get_users():
-    return {
-        "admin": "admin123"
-    }
-
 def login_screen():
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
+    st.markdown("<h2 style='text-align: center;'>🔐 Login - SISCOMEX JSON Generator</h2>", unsafe_allow_html=True)
 
-    if not st.session_state["logged_in"]:
-        st.markdown("## 🔐 Login - SISCOMEX JSON Generator")
-        opcao = st.radio("Selecione uma opção:", ["Login", "Criar conta"])
+    opcao = st.radio("Selecione uma opção:", ("Login", "Criar conta"), horizontal=True)
 
-        username = st.text_input("Usuário")
-        password = st.text_input("Senha", type="password")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        usuario = st.text_input("Usuário", key="usuario")
+        senha = st.text_input("Senha", type="password", key="senha")
 
         if st.button("Entrar"):
-            users = get_users()
-            if username in users and users[username] == password:
+            if usuario == "admin" and senha == "admin123":
                 st.success("Login realizado com sucesso!")
                 st.session_state["logged_in"] = True
-                st.rerun()
+                st.experimental_rerun()
             else:
                 st.error("Usuário ou senha inválidos.")
-        st.stop()
