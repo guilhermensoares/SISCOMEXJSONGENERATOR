@@ -36,11 +36,15 @@ with aba[0]:
 with aba[1]:
     st.markdown("### 🔄 Geração de vínculos")
 
+    cnpj_vinculos = st.text_input("CNPJ", value="04307549", max_chars=14)
     file_siscomex = st.file_uploader("CSV exportado do SISCOMEX", type=["csv"])
     file_base = st.file_uploader("Sua base de dados", type=["xlsx"])
 
     if st.button("🔗 Gerar JSON de Vínculos"):
-        processar_vinculos(file_siscomex, file_base)
+        if file_siscomex and file_base and cnpj_vinculos:
+            processar_vinculos(file_siscomex, file_base, cnpj_vinculos)
+        else:
+            st.warning("Por favor, preencha todos os campos e envie os arquivos.")
 
 # Rodapé com crédito
 st.markdown("""
