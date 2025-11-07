@@ -1,48 +1,40 @@
+import json
 import pandas as pd
 import streamlit as st
-import json
 
-def processar_vinculos(file_siscomex, file_base, cnpj):
-    if not file_siscomex or not file_base:
-        st.warning("Por favor, envie os dois arquivos.")
-        return
+def processar_vinculos(csv_file, base_file, cnpj):
+    try:
+        df_siscomex = pd.read_csv(csv_file, sep=";")
+        df_base = pd.read_excel(base_file)
 
-    df_siscomex = pd.read_csv(file_siscomex, sep=';', encoding='latin1')
-    df_base = pd.read_excel(file_base)
+        lista_vinculos = []
 
-    if df_siscomex.empty or df_base.empty:
-        st.error("Algum dos arquivos está vazio.")
-        return
+        for _, row in df_siscomex.iterrows():
+            referencia = str(row["Referência"])
+            base_row = df_base[df_base["Referência"] == referencia]
 
-    df_base = df_base.fillna("")
+            if not base_row.empty:
+                produto = base_row.iloc[0]
+                vinculo = {
+                    "cnpj": cnpj,
+                    "codigo": str(produto["codigo"]),
+                    "referencia": referencia
+                }
+                lista_vinculos.append(vinculo)
 
-    resultados = []
+        json_data = {"vinculos": lista_vinculos}
+        nome_arquivo = "vinculos.json"
 
-    for _, row in df_base.iterrows():
-        modelo = row.get("modelo", "").strip().lower()
-        if not modelo:
-            continue
+        with open(nome_arquivo, "w", encoding="utf-8") as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-        correspondencias = df_siscomex[df_siscomex['DESCRIÇÃO MERCADORIA'].str.lower().str.contains(modelo)]
+        st.success("JSON de vínculos gerado com sucesso!")
+        st.download_button(
+            label="📥 Baixar vinculos.json",
+            data=json.dumps(json_data, ensure_ascii=False, indent=4),
+            file_name=nome_arquivo,
+            mime="application/json"
+        )
 
-        for _, match in correspondencias.iterrows():
-            resultado = {
-                "cnpj": str(cnpj),
-                "modelo": modelo,
-                "ncm": match.get("NCM"),
-                "descricao_siscomex": match.get("DESCRIÇÃO MERCADORIA"),
-                "chave_catalogo": row.get("chave_catalogo"),
-            }
-            resultados.append(resultado)
-
-    if not resultados:
-        st.info("Nenhuma correspondência encontrada.")
-        return
-
-    json_filename = "vinculos_gerados.json"
-    st.download_button(
-        label="📄 Baixar vinculos_gerados.json",
-        file_name=json_filename,
-        mime="application/json",
-        data=json.dumps(resultados, indent=2, ensure_ascii=False),
-    )
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao gerar os vínculos: {str(e)}")
