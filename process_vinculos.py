@@ -1,38 +1,41 @@
 import pandas as pd
 import json
-import math
-from io import BytesIO
+from io import StringIO, BytesIO
 
 mapa_paises = {
-    "CHINA": "CN", "ALEMANHA": "DE", "EUA": "US", "ESTADOS UNIDOS": "US",
-    "ITÁLIA": "IT", "JAPÃO": "JP", "COREIA DO SUL": "KR", "TAIWAN": "TW",
-    "MÉXICO": "MX", "ÍNDIA": "IN", "REINO UNIDO": "GB", "FRANÇA": "FR",
-    "POLÔNIA": "PL", "ESPANHA": "ES", "PORTUGAL": "PT", "BRASIL": "BR"
+    "CHINA": "CN", "CHINA, REPÚBLICA POPULAR": "CN",
+    "ALEMANHA": "DE", "ESTADOS UNIDOS": "US", "EUA": "US",
+    "BRASIL": "BR", "ITÁLIA": "IT", "JAPÃO": "JP", "COREIA DO SUL": "KR",
+    "TAIWAN": "TW", "MÉXICO": "MX", "ÍNDIA": "IN", "REINO UNIDO": "GB",
+    "FRANÇA": "FR", "POLÔNIA": "PL", "ESPANHA": "ES", "PORTUGAL": "PT",
+    "TURQUIA": "TR", "ÁUSTRIA": "AT", "REPÚBLICA TCHECA": "CZ",
+    "HUNGRIA": "HU", "PAÍSES BAIXOS": "NL", "SUÉCIA": "SE", "SUÍÇA": "CH",
+    "TAILÂNDIA": "TH"
 }
 
-def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int = 100):
-    try:
-        df_export = pd.read_csv(csv_file, sep=None, engine="python", encoding="utf-8-sig", dtype=str)
-    except Exception:
-        df_export = pd.read_csv(csv_file, sep=";", encoding="utf-8-sig", dtype=str)
-
-    df_base = pd.read_excel(excel_file, sheet_name="Planilha1", dtype=str)
+def processar_vinculos(csv_file, planilha_file, cnpj_raiz, tamanho_lote):
+    df_export = pd.read_csv(csv_file, sep=None, engine="python", encoding="utf-8-sig", dtype=str)
+    df_base = pd.read_excel(planilha_file, sheet_name="Planilha1", dtype=str)
 
     df_export["Código interno do produto"] = df_export["Código interno do produto"].astype(str).str.strip().str.upper()
     df_base["COD. KING"] = df_base["COD. KING"].astype(str).str.strip().str.upper()
 
-    df = df_export.merge(
-        df_base,
-        left_on="Código interno do produto",
-        right_on="COD. KING",
-        how="left",
-        indicator=True
-    )
+    df = df_export.merge(df_base, left_on="Código interno do produto", right_on="COD. KING", how="left", indicator=True)
 
-    lotes_df = [df[i:i + tamanho_lote] for i in range(0, len(df), tamanho_lote)]
-    resultados = []
+    nao_casaram = df[df["_merge"] != "both"]
+    if not nao_casaram.empty:
+        debug_csv = nao_casaram[["Código do produto", "Código interno do produto"]]
+        debug_buffer = StringIO()
+        debug_csv.to_csv(debug_buffer, index=False, encoding="utf-8-sig")
+        debug_csv_bytes = debug_buffer.getvalue().encode()
+    else:
+        debug_csv_bytes = None
 
-    for i, lote in enumerate(lotes_df, start=1):
+    df_ok = df[df["_merge"] == "both"]
+    lotes = [df_ok[i:i + tamanho_lote] for i in range(0, len(df_ok), tamanho_lote)]
+    arquivos = []
+
+    for i, lote in enumerate(lotes, start=1):
         saida = []
         seq = 1
 
@@ -73,11 +76,13 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
                 })
                 seq += 1
 
-        nome = f"{cnpj_raiz}_VINCULOS_FABRICANTE_EXPORTADOR_Lote{i}.json"
+        nome_arquivo = f"{cnpj_raiz}_VINCULOS_Lote{i}.json"
         buffer = BytesIO()
-        json_str = json.dumps(saida, ensure_ascii=False, indent=4)
-        buffer.write(json_str.encode("utf-8"))
+        buffer.write(json.dumps(saida, ensure_ascii=False, indent=4).encode("utf-8-sig"))
         buffer.seek(0)
-        resultados.append((nome, buffer))
+        arquivos.append((nome_arquivo, buffer.read()))
 
-    return resultados
+    if debug_csv_bytes:
+        arquivos.insert(0, ("ATENÇÃO_NAO_CASADOS.csv", debug_csv_bytes))
+
+    return arquivos
