@@ -10,7 +10,7 @@ st.set_page_config(page_title="King Imports - SISCOMEX JSON Generator", layout="
 # Logo centralizado
 def exibir_logo():
     try:
-        with open("logo-novo-preto.png", "rb") as img_file:
+        with open("Logo_branca_600px.png", "rb") as img_file:
             logo_bytes = img_file.read()
             logo_base64 = base64.b64encode(logo_bytes).decode()
         st.markdown(
@@ -103,7 +103,7 @@ def tela_principal():
     st.markdown("""
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por Guilherme Soares - Supply Chain | Versão 1.0<br>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 1.7<br>
             🛠️ Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
