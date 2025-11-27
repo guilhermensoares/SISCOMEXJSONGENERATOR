@@ -12,6 +12,7 @@ mapa_paises = {
 
 def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int = 100):
     df_export = pd.read_csv(csv_file, sep=";", encoding="utf-8-sig", dtype=str)
+    df_export.columns = df_export.columns.str.strip().str.replace('"', '')
 
     df_base = pd.read_excel(excel_file, sheet_name="Planilha1", dtype=str)
 
