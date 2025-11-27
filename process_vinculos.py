@@ -66,7 +66,7 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
                 "seq": seq,
                 "cpfCnpjRaiz": cnpj_raiz,
                 "codigoOperadorEstrangeiro": cod_fabricante,
-                "cpfCnpjFabricante": "00000000",
+                "cpfCnpjFabricante": "00000000000000",
                 "conhecido": fabricante_conhecido,
                 "codigoProduto": codigo_produto,
                 "codigoPais": codigo_pais
@@ -79,7 +79,7 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
                     "seq": seq,
                     "cpfCnpjRaiz": cnpj_raiz,
                     "codigoOperadorEstrangeiro": cod_exportador,
-                    "cpfCnpjFabricante": "00000000",
+                    "cpfCnpjFabricante": "00000000000000",
                     "conhecido": True,
                     "codigoProduto": codigo_produto,
                     "codigoPais": codigo_pais
