@@ -28,8 +28,9 @@ def exibir_logo():
 # Autenticação básica
 def autenticar(usuario, senha):
     usuarios_validos = {
-        "admin": "1234",
-        "estagiaria": "1234"
+        "guilherme.soares": "Gui88474512",
+        "g.romao": "Abc@123",
+        "marcos.sanches": "Abc@123"
     }
     return usuarios_validos.get(usuario) == senha
 
