@@ -79,7 +79,7 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
 
             cod_exportador = str(row.get("Código Operador Estrangeiro Exportador", "")).strip()
             cod_fabricante = str(row.get("Código Operador Estrangeiro Fabricante", "")).strip()
-            fabricante_conhecido = bool(cod_fabricante)
+            fabricante_conhecido = True
 
             try:
                 codigo_produto = int(str(row.get("Código do produto", "")).strip())
@@ -92,7 +92,7 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
                 "cpfCnpjRaiz": cnpj_raiz,
                 "codigoOperadorEstrangeiro": cod_fabricante,
                 "cpfCnpjFabricante": "00000000000000",
-                "conhecido": True,
+                "conhecido": fabricante_conhecido,
                 "codigoProduto": codigo_produto,
                 "codigoPais": codigo_pais
             })
@@ -105,7 +105,7 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
                     "cpfCnpjRaiz": cnpj_raiz,
                     "codigoOperadorEstrangeiro": cod_exportador,
                     "cpfCnpjFabricante": "00000000000000",
-                    "conhecido": True,
+                    "conhecido": fabricante_conhecido,
                     "codigoProduto": codigo_produto,
                     "codigoPais": codigo_pais
                 })
