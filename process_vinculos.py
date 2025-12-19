@@ -49,7 +49,7 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
         seq = 1
 
         for _, row in lote.iterrows():
-            pais_nome = str(row.get("PAIS", "")).strip().upper()
+            pais_nome = str(row.get("País", "")).strip().upper()
             codigo_pais = mapa_paises.get(pais_nome, "XX")
 
             cod_exportador = str(row.get("Código Operador Estrangeiro Exportador", "")).strip()
