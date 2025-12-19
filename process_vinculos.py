@@ -2,6 +2,7 @@ import pandas as pd
 import json
 import math
 from io import BytesIO
+import unicodedata
 
 # Mapeamento de países
 mapa_paises = {
@@ -10,6 +11,30 @@ mapa_paises = {
     "MÉXICO": "MX", "ÍNDIA": "IN", "REINO UNIDO": "GB", "FRANÇA": "FR",
     "POLÔNIA": "PL", "ESPANHA": "ES", "PORTUGAL": "PT", "BRASIL": "BR"
 }
+
+def _norm_txt(x) -> str:
+    """Normaliza texto: strip + remove acentos + UPPER."""
+    if x is None:
+        return ""
+    s = str(x).strip()
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    return s.upper()
+
+def _resolver_col_pais(df: pd.DataFrame) -> str | None:
+    """
+    Resolve a coluna de país após o merge.
+    Prioriza base (PAIS_Y) -> coluna exata PAIS -> export (PAIS_X).
+    Funciona mesmo se a coluna original for 'País' (com acento).
+    """
+    norm_map = {_norm_txt(c): c for c in df.columns}
+
+    for chave in ("PAIS_Y", "PAIS", "PAIS_X"):
+        if chave in norm_map:
+            return norm_map[chave]
+
+    # fallback: primeira coluna que contenha "PAIS"
+    candidatos = [c for c in df.columns if "PAIS" in _norm_txt(c)]
+    return candidatos[0] if candidatos else None
 
 def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int = 100):
     # ✅ Leitura correta do CSV exportado pelo Siscomex
