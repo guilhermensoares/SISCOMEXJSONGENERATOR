@@ -105,7 +105,7 @@ def tela_principal():
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
             Desenvolvido por Guilherme Soares - Supply Chain | Versão 1.7<br>
-            🛠️ Powered by Python + Streamlit |
+             Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
             </a>
