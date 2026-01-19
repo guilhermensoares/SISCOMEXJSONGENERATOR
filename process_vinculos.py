@@ -49,17 +49,17 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
     df_export.columns = df_export.columns.str.strip()
 
     if "Código do produto" not in df_export.columns:
-        raise ValueError("A coluna 'Código interno' não foi encontrada no CSV.")
+        raise ValueError("A coluna 'Código interno do produto' não foi encontrada no CSV.")
 
     # ✅ Leitura da planilha base
     df_base = pd.read_excel(excel_file, sheet_name="Planilha1", dtype=str)
     df_base["COD. KING"] = df_base["COD. KING"].astype(str).str.strip().str.upper()
-    df_export["Código interno"] = df_export["Código interno"].astype(str).str.strip().str.upper()
+    df_export["Código interno do produto"] = df_export["Código interno do produto"].astype(str).str.strip().str.upper()
 
     # Merge entre o CSV e a base de itens
     df = df_export.merge(
         df_base,
-        left_on="Código interno",
+        left_on="Código interno do produto",
         right_on="COD. KING",
         how="left",
         indicator=True
