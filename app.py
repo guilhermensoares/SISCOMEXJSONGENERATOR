@@ -3,10 +3,14 @@ from pathlib import Path
 
 import streamlit as st
 
+from process_catalogo import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_CATALOGO
 from process_catalogo import processar_catalogo
 from process_edicao_json import editar_jsons_catalogo, gerar_bodies_retificacao
+from process_vinculos import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_VINCULOS
 from process_vinculos import processar_vinculos
 
+
+LIMITE_REGISTROS_POR_ARQUIVO = 100
 
 st.set_page_config(page_title="King Imports - SISCOMEX JSON Generator", layout="centered")
 
@@ -50,8 +54,16 @@ def _render_download_jsons(resultados):
         )
 
 
+def _alerta_loteamento():
+    st.info(
+        f"Regra fixa: todos os arquivos consolidados são gerados com no máximo "
+        f"{LIMITE_REGISTROS_POR_ARQUIVO} registros por arquivo."
+    )
+
+
 def tela_principal():
     exibir_logo()
+    _alerta_loteamento()
 
     aba = st.radio(
         "Escolha o tipo de operação:",
@@ -67,10 +79,11 @@ def tela_principal():
     with st.form("form_json"):
         if aba in ["Catálogo de Produtos", "Vínculo Fabricante–Exportador"]:
             cnpj = st.text_input("CNPJ Raiz", value="04307549", max_chars=8)
-            tamanho = st.number_input("Quantidade por lote", min_value=1, value=100)
+            st.caption(
+                "Quantidade por lote travada em 100 registros por arquivo, conforme limite operacional do Siscomex."
+            )
         else:
             cnpj = ""
-            tamanho = 100
 
         if aba == "Catálogo de Produtos":
             st.markdown("### Upload da Planilha de Itens (Excel - Base Atualizada)")
@@ -86,7 +99,7 @@ def tela_principal():
         elif aba == "Corrigir JSON de Lote":
             st.markdown("### Corrigir JSON de lote já gerado")
             st.caption(
-                "Mantém a mesma estrutura de cadastro em lote, mas corrige codigosInterno. "
+                "Mantém a estrutura de cadastro em lote, corrige codigosInterno e quebra a saída em arquivos de até 100 registros. "
                 "Exemplo: 53907.0 → 53907."
             )
             json_files = st.file_uploader(
@@ -118,7 +131,7 @@ def tela_principal():
             st.caption(
                 "Converte o JSON de lote para o body aceito na edição/retificação de produto existente. "
                 "Remove seq, cpfCnpjRaiz, situacao e fabricantesProdutores. "
-                "Também corrige codigosInterno."
+                "Também corrige codigosInterno e quebra pacotes consolidados em arquivos de até 100 registros."
             )
             json_files = st.file_uploader(
                 "Selecione um ou mais JSONs de lote do catálogo",
@@ -174,7 +187,8 @@ def tela_principal():
                 if not planilha:
                     st.error("Por favor, envie a planilha.")
                     return
-                resultados = processar_catalogo(planilha, cnpj, tamanho)
+                resultados = processar_catalogo(planilha, cnpj)
+                st.success(f"Arquivos gerados: {len(resultados)} | Limite: {LIMITE_CATALOGO} registros por arquivo")
                 _render_download_jsons(resultados)
 
             elif aba == "Vínculo Fabricante–Exportador":
@@ -184,7 +198,8 @@ def tela_principal():
                 if not csv or not excel:
                     st.error("Por favor, envie ambos os arquivos.")
                     return
-                resultados = processar_vinculos(csv, excel, cnpj, tamanho)
+                resultados = processar_vinculos(csv, excel, cnpj)
+                st.success(f"Arquivos gerados: {len(resultados)} | Limite: {LIMITE_VINCULOS} registros por arquivo")
                 _render_download_jsons(resultados)
 
             elif aba == "Corrigir JSON de Lote":
@@ -202,7 +217,10 @@ def tela_principal():
                     coluna_para=coluna_para,
                 )
 
-                st.success(f"Processamento concluído. Códigos alterados: {len(log_df)}")
+                st.success(
+                    f"Processamento concluído. Arquivos gerados: {len(resultados)} | "
+                    f"Códigos alterados: {len(log_df)}"
+                )
                 st.dataframe(log_df, use_container_width=True)
 
                 st.download_button(
@@ -235,7 +253,10 @@ def tela_principal():
                     coluna_versao_path=coluna_versao_path,
                 )
 
-                st.success(f"Bodies gerados: {len(bodies)}")
+                st.success(
+                    f"Bodies individuais gerados: {len(bodies)} | "
+                    "Pacotes consolidados quebrados em lotes de até 100 registros"
+                )
                 st.markdown("#### Manifesto")
                 st.dataframe(manifest_df, use_container_width=True)
                 st.markdown("#### Log de normalização")
@@ -255,7 +276,7 @@ def tela_principal():
         """
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.0<br>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.1<br>
             Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin

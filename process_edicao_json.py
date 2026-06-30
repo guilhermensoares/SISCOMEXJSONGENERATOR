@@ -1,11 +1,14 @@
 import json
 import re
 import zipfile
+from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 
+
+LIMITE_REGISTROS_POR_ARQUIVO = 100
 
 CAMPOS_BODY_RETIFICACAO = [
     "descricao",
@@ -18,7 +21,6 @@ CAMPOS_BODY_RETIFICACAO = [
     "atributosCompostosMultivalorados",
     "codigosInterno",
 ]
-
 
 CAMPOS_REMOVIDOS_DO_LOTE = [
     "seq",
@@ -86,6 +88,10 @@ def normalizar_ncm(valor) -> str:
         texto = re.split(r"[\.,]", texto, maxsplit=1)[0]
 
     return re.sub(r"\D", "", texto)
+
+
+def _quebrar_em_lotes(registros: list, limite: int = LIMITE_REGISTROS_POR_ARQUIVO) -> list[list]:
+    return [registros[i:i + limite] for i in range(0, len(registros), limite)]
 
 
 def _resolver_coluna(df: pd.DataFrame, nome_desejado: str) -> str | None:
@@ -222,6 +228,29 @@ def _extrair_produtos(dados) -> list[dict]:
     raise ValueError("Formato de JSON não suportado. Esperado lista ou dicionário.")
 
 
+def _montar_json_com_produtos(dados_original, produtos_lote: list[dict]):
+    """
+    Reconstrói o JSON corrigido preservando, quando possível, o envelope original.
+
+    O gerador da King normalmente trabalha com raiz em lista. Para envelopes simples,
+    troca apenas a lista de produtos pela fatia de até 100 registros.
+    """
+    if isinstance(dados_original, list):
+        return produtos_lote
+
+    if isinstance(dados_original, dict):
+        for chave in ("produtos", "catalogo", "itens", "data"):
+            if isinstance(dados_original.get(chave), list):
+                novo = deepcopy(dados_original)
+                novo[chave] = produtos_lote
+                return novo
+
+        if "codigosInterno" in dados_original and len(produtos_lote) == 1:
+            return produtos_lote[0]
+
+    return produtos_lote
+
+
 def _normalizar_codigos_produto(
     produto: dict,
     mapa_de_para: dict[str, str],
@@ -269,7 +298,7 @@ def editar_json_catalogo(
     mapa_de_para: dict[str, str] | None = None,
 ):
     """
-    Corrige o JSON de lote de catálogo, mantendo a mesma estrutura original.
+    Corrige o JSON de lote de catálogo e retorna arquivos em lotes de até 100 registros.
 
     Use quando a intenção for apenas limpar o arquivo gerado localmente:
     - codigosInterno: ["53907.0"] -> ["53907"]
@@ -286,10 +315,15 @@ def editar_json_catalogo(
         produto["codigosInterno"] = codigos_finais
         logs.extend(logs_produto)
 
-    saida = BytesIO()
-    saida.write(json.dumps(dados, ensure_ascii=False, indent=4).encode("utf-8"))
-    saida.seek(0)
-    return saida, logs
+    arquivos_corrigidos = []
+    for i, lote in enumerate(_quebrar_em_lotes(produtos), start=1):
+        dados_lote = _montar_json_com_produtos(dados, lote)
+        saida = BytesIO()
+        saida.write(json.dumps(dados_lote, ensure_ascii=False, indent=4).encode("utf-8"))
+        saida.seek(0)
+        arquivos_corrigidos.append((i, saida, len(lote)))
+
+    return arquivos_corrigidos, logs
 
 
 def editar_jsons_catalogo(
@@ -300,7 +334,7 @@ def editar_jsons_catalogo(
 ):
     """
     Processa um ou mais JSONs de lote e devolve:
-    - lista de arquivos JSON corrigidos;
+    - lista de arquivos JSON corrigidos, sempre com até 100 registros por arquivo;
     - DataFrame de log;
     - ZIP com todos os arquivos corrigidos + log CSV.
     """
@@ -315,10 +349,12 @@ def editar_jsons_catalogo(
     for arquivo in arquivos_json:
         nome_original = getattr(arquivo, "name", "catalogo.json")
         conteudo = arquivo.read()
-        buffer_json, logs = editar_json_catalogo(conteudo, nome_original, mapa_de_para)
+        arquivos_corrigidos, logs = editar_json_catalogo(conteudo, nome_original, mapa_de_para)
 
-        nome_saida = f"{Path(nome_original).stem}_corrigido.json"
-        resultados.append((nome_saida, buffer_json))
+        stem = Path(nome_original).stem
+        for lote_num, buffer_json, qtd_registros in arquivos_corrigidos:
+            nome_saida = f"{stem}_corrigido_Lote{lote_num}.json"
+            resultados.append((nome_saida, buffer_json))
         todos_logs.extend(logs)
 
     log_df = pd.DataFrame(todos_logs)
@@ -382,7 +418,9 @@ def gerar_bodies_retificacao(
     - gera apenas os bodies, pois ainda faltam codigo e versao no path da API.
 
     Com arquivo_path:
-    - gera também um JSON consolidado com path + body.
+    - gera também JSONs consolidados com path + body.
+
+    Todos os arquivos consolidados são quebrados em lotes de até 100 registros.
     """
     if not arquivos_json:
         raise ValueError("Envie ao menos um arquivo JSON para gerar body de retificação.")
@@ -477,16 +515,18 @@ def gerar_bodies_retificacao(
         for nome_body, buffer in bodies_individuais:
             zf.writestr(f"bodies_individuais/{nome_body}", buffer.getvalue())
 
-        zf.writestr(
-            "pacote_retificacao_sem_path.json",
-            json.dumps(pacote_sem_path, ensure_ascii=False, indent=4).encode("utf-8"),
-        )
+        for lote_num, lote in enumerate(_quebrar_em_lotes(pacote_sem_path), start=1):
+            zf.writestr(
+                f"pacotes_sem_path/pacote_retificacao_sem_path_Lote{lote_num}.json",
+                json.dumps(lote, ensure_ascii=False, indent=4).encode("utf-8"),
+            )
 
         if pacote_com_path:
-            zf.writestr(
-                "pacote_retificacao_com_path.json",
-                json.dumps(pacote_com_path, ensure_ascii=False, indent=4).encode("utf-8"),
-            )
+            for lote_num, lote in enumerate(_quebrar_em_lotes(pacote_com_path), start=1):
+                zf.writestr(
+                    f"pacotes_com_path/pacote_retificacao_com_path_Lote{lote_num}.json",
+                    json.dumps(lote, ensure_ascii=False, indent=4).encode("utf-8"),
+                )
 
         zf.writestr(
             "manifesto_retificacao.csv",
@@ -500,10 +540,13 @@ def gerar_bodies_retificacao(
             "README_RETIFICACAO.txt",
             (
                 "Este pacote foi gerado a partir do JSON de lote do catálogo.\n\n"
+                "Regra de loteamento:\n"
+                "- Todos os arquivos consolidados são gerados com no máximo 100 registros por arquivo.\n"
+                "- A pasta bodies_individuais contém um body por produto, portanto cada arquivo tem 1 registro.\n\n"
                 "Arquivos principais:\n"
                 "- bodies_individuais/: um body JSON por produto, no modelo de edição/retificação.\n"
-                "- pacote_retificacao_sem_path.json: consolidação com metadados locais + body.\n"
-                "- pacote_retificacao_com_path.json: gerado apenas quando enviada planilha com SKU, codigo Siscomex e versao.\n"
+                "- pacotes_sem_path/: consolidações com metadados locais + body, em lotes de até 100 registros.\n"
+                "- pacotes_com_path/: gerado apenas quando enviada planilha com SKU, codigo Siscomex e versao, em lotes de até 100 registros.\n"
                 "- manifesto_retificacao.csv: log para auditoria e cruzamento.\n"
                 "- log_normalizacao_codigos.csv: alterações feitas em codigosInterno.\n\n"
                 "Atenção: para chamar a API de retificação/edição, o Siscomex exige cpfCnpjRaiz, codigo do produto e versao no path.\n"

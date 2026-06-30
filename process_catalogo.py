@@ -5,6 +5,9 @@ from io import BytesIO
 
 import pandas as pd
 
+
+LIMITE_REGISTROS_POR_ARQUIVO = 100
+
 mapa_paises = {
     "CHINA": "CN", "CHINA, REPÚBLICA POPULAR": "CN",
     "ALEMANHA": "DE", "ESTADOS UNIDOS": "US", "EUA": "US",
@@ -18,19 +21,18 @@ mapa_paises = {
 
 
 def _valor_vazio(valor) -> bool:
-    """Retorna True para valores vazios/NaN vindos do Excel."""
     return valor is None or pd.isna(valor)
 
 
 def normalizar_sku_king(valor, tamanho: int = 5) -> str:
     """
-    Normaliza SKU King para evitar saídas como '12345.0'.
+    Normaliza códigos internos/SKUs para o padrão King de 5 dígitos.
 
-    Regras:
-    - Remove espaços e espaços não quebráveis;
-    - Converte números inteiros lidos como float pelo pandas: 12345.0 -> 12345;
-    - Remove sufixos decimais zerados em texto: '12345.0', '12345.00', '12345,0';
-    - Preenche com zero à esquerda quando o código numérico tiver menos de 5 dígitos.
+    Exemplos:
+    - 12345.0   -> 12345
+    - 12345,0   -> 12345
+    - 1234      -> 01234
+    - 00123.0   -> 00123
     """
     if _valor_vazio(valor):
         return ""
@@ -45,12 +47,12 @@ def normalizar_sku_king(valor, tamanho: int = 5) -> str:
 
     texto = texto.strip().replace("\u00a0", "")
 
-    # Ex.: '12345.0', '12345.00', '12345,0'
+    # Remove sufixos decimais zerados gerados por Excel/pandas: 12345.0, 12345.00, 12345,0
     if re.fullmatch(r"\d+[\.,]0+", texto):
         texto = re.split(r"[\.,]", texto, maxsplit=1)[0]
 
-    # Ex.: '12345,000' após exportações regionais
-    if re.fullmatch(r"\d+", texto) and len(texto) < tamanho:
+    # SKUs King numéricos devem preservar 5 dígitos
+    if texto.isdigit() and len(texto) < tamanho:
         texto = texto.zfill(tamanho)
 
     return texto
@@ -82,7 +84,19 @@ def normalizar_texto(valor) -> str:
     return str(valor).strip()
 
 
-def processar_catalogo(planilha_file, cnpj_raiz: str, tamanho_lote: int = 5):
+def _quebrar_em_lotes(registros: list, limite: int = LIMITE_REGISTROS_POR_ARQUIVO) -> list[list]:
+    return [registros[i:i + limite] for i in range(0, len(registros), limite)]
+
+
+def processar_catalogo(planilha_file, cnpj_raiz: str, tamanho_lote: int = LIMITE_REGISTROS_POR_ARQUIVO):
+    """
+    Gera JSONs de Catálogo de Produtos.
+
+    Observação operacional: o Siscomex aceita no máximo 100 registros por arquivo.
+    Por isso, o lote é sempre travado em 100, mesmo que algum valor diferente seja passado por engano.
+    """
+    tamanho_lote = LIMITE_REGISTROS_POR_ARQUIVO
+
     # dtype=object mantém os tipos originais; a normalização é feita campo a campo
     # para impedir que códigos numéricos virem texto com '.0'.
     df = pd.read_excel(planilha_file, sheet_name="Planilha1", dtype=object)
@@ -146,7 +160,7 @@ def processar_catalogo(planilha_file, cnpj_raiz: str, tamanho_lote: int = 5):
                 "atributosCompostos": [],
                 "atributosCompostosMultivalorados": [],
                 "codigosInterno": [cod_interno],
-                "fabricantesProdutores": fabricantes_produtores
+                "fabricantesProdutores": fabricantes_produtores,
             }
 
             produtos.append(produto)
@@ -155,14 +169,9 @@ def processar_catalogo(planilha_file, cnpj_raiz: str, tamanho_lote: int = 5):
         except Exception as e:
             print(f"Erro na linha {idx + 2}: {e}")
 
-    total = len(produtos)
-    num_arquivos = math.ceil(total / tamanho_lote)
     resultados = []
-
-    for i in range(num_arquivos):
-        inicio, fim = i * tamanho_lote, (i + 1) * tamanho_lote
-        lote = produtos[inicio:fim]
-        nome = f"{cnpj_raiz}_CATALOGO_Lote{i + 1}.json"
+    for i, lote in enumerate(_quebrar_em_lotes(produtos, tamanho_lote), start=1):
+        nome = f"{cnpj_raiz}_CATALOGO_Lote{i}.json"
         buffer = BytesIO()
         json_str = json.dumps(lote, ensure_ascii=False, indent=4)
         buffer.write(json_str.encode("utf-8"))
