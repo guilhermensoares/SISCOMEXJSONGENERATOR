@@ -11,6 +11,7 @@ from process_vinculos import processar_vinculos
 
 
 LIMITE_REGISTROS_POR_ARQUIVO = 100
+DOWNLOAD_CACHE_KEY = "downloads_gerados_siscomex"
 
 st.set_page_config(page_title="King Imports - SISCOMEX JSON Generator", layout="centered")
 
@@ -44,6 +45,21 @@ def exibir_logo():
     )
 
 
+def _buffer_para_bytes(buffer) -> bytes:
+    """Converte BytesIO/bytes em bytes para manter downloads após o rerun do Streamlit."""
+    if isinstance(buffer, bytes):
+        return buffer
+    if isinstance(buffer, bytearray):
+        return bytes(buffer)
+    if hasattr(buffer, "getvalue"):
+        return buffer.getvalue()
+    return bytes(buffer)
+
+
+def _normalizar_resultados_para_cache(resultados):
+    return [(nome_arquivo, _buffer_para_bytes(buffer)) for nome_arquivo, buffer in resultados]
+
+
 def _render_download_jsons(resultados):
     for nome_arquivo, buffer in resultados:
         st.download_button(
@@ -52,6 +68,41 @@ def _render_download_jsons(resultados):
             file_name=nome_arquivo,
             mime="application/json",
         )
+
+
+def _salvar_downloads(aba, mensagem_sucesso, jsons=None, zip_info=None, tabelas=None):
+    """Guarda os arquivos gerados para que os botões de download permaneçam na tela."""
+    st.session_state[DOWNLOAD_CACHE_KEY] = {
+        "aba": aba,
+        "mensagem_sucesso": mensagem_sucesso,
+        "jsons": _normalizar_resultados_para_cache(jsons or []),
+        "zip_info": zip_info,
+        "tabelas": tabelas or [],
+    }
+
+
+def _render_downloads_salvos(aba):
+    cache = st.session_state.get(DOWNLOAD_CACHE_KEY)
+    if not cache or cache.get("aba") != aba:
+        return
+
+    st.success(cache.get("mensagem_sucesso", "Arquivos gerados."))
+
+    for titulo, dataframe in cache.get("tabelas", []):
+        if titulo:
+            st.markdown(titulo)
+        st.dataframe(dataframe, use_container_width=True)
+
+    zip_info = cache.get("zip_info")
+    if zip_info:
+        st.download_button(
+            label=zip_info["label"],
+            data=zip_info["data"],
+            file_name=zip_info["file_name"],
+            mime=zip_info["mime"],
+        )
+
+    _render_download_jsons(cache.get("jsons", []))
 
 
 def _alerta_loteamento():
@@ -75,6 +126,10 @@ def tela_principal():
         ],
         horizontal=False,
     )
+
+    cache_atual = st.session_state.get(DOWNLOAD_CACHE_KEY)
+    if cache_atual and cache_atual.get("aba") != aba:
+        st.session_state.pop(DOWNLOAD_CACHE_KEY, None)
 
     with st.form("form_json"):
         if aba in ["Catálogo de Produtos", "Vínculo Fabricante–Exportador"]:
@@ -188,8 +243,9 @@ def tela_principal():
                     st.error("Por favor, envie a planilha.")
                     return
                 resultados = processar_catalogo(planilha, cnpj)
-                st.success(f"Arquivos gerados: {len(resultados)} | Limite: {LIMITE_CATALOGO} registros por arquivo")
-                _render_download_jsons(resultados)
+                mensagem = f"Arquivos gerados: {len(resultados)} | Limite: {LIMITE_CATALOGO} registros por arquivo"
+                _salvar_downloads(aba, mensagem, jsons=resultados)
+                _render_downloads_salvos(aba)
 
             elif aba == "Vínculo Fabricante–Exportador":
                 if not cnpj:
@@ -199,8 +255,9 @@ def tela_principal():
                     st.error("Por favor, envie ambos os arquivos.")
                     return
                 resultados = processar_vinculos(csv, excel, cnpj)
-                st.success(f"Arquivos gerados: {len(resultados)} | Limite: {LIMITE_VINCULOS} registros por arquivo")
-                _render_download_jsons(resultados)
+                mensagem = f"Arquivos gerados: {len(resultados)} | Limite: {LIMITE_VINCULOS} registros por arquivo"
+                _salvar_downloads(aba, mensagem, jsons=resultados)
+                _render_downloads_salvos(aba)
 
             elif aba == "Corrigir JSON de Lote":
                 if not json_files:
@@ -217,19 +274,23 @@ def tela_principal():
                     coluna_para=coluna_para,
                 )
 
-                st.success(
+                mensagem = (
                     f"Processamento concluído. Arquivos gerados: {len(resultados)} | "
                     f"Códigos alterados: {len(log_df)}"
                 )
-                st.dataframe(log_df, use_container_width=True)
-
-                st.download_button(
-                    label="📦 Baixar JSONs corrigidos + log (.zip)",
-                    data=zip_buffer,
-                    file_name="jsons_catalogo_corrigidos.zip",
-                    mime="application/zip",
+                _salvar_downloads(
+                    aba,
+                    mensagem,
+                    jsons=resultados,
+                    zip_info={
+                        "label": "📦 Baixar JSONs corrigidos + log (.zip)",
+                        "data": _buffer_para_bytes(zip_buffer),
+                        "file_name": "jsons_catalogo_corrigidos.zip",
+                        "mime": "application/zip",
+                    },
+                    tabelas=[("", log_df)],
                 )
-                _render_download_jsons(resultados)
+                _render_downloads_salvos(aba)
 
             else:
                 if not json_files:
@@ -253,30 +314,34 @@ def tela_principal():
                     coluna_versao_path=coluna_versao_path,
                 )
 
-                st.success(
+                mensagem = (
                     f"Bodies individuais gerados: {len(bodies)} | "
                     "Pacotes consolidados quebrados em lotes de até 100 registros"
                 )
-                st.markdown("#### Manifesto")
-                st.dataframe(manifest_df, use_container_width=True)
-                st.markdown("#### Log de normalização")
-                st.dataframe(log_df, use_container_width=True)
-
-                st.download_button(
-                    label="📦 Baixar pacote de retificação (.zip)",
-                    data=zip_buffer,
-                    file_name="pacote_bodies_retificacao_siscomex.zip",
-                    mime="application/zip",
+                _salvar_downloads(
+                    aba,
+                    mensagem,
+                    zip_info={
+                        "label": "📦 Baixar pacote de retificação (.zip)",
+                        "data": _buffer_para_bytes(zip_buffer),
+                        "file_name": "pacote_bodies_retificacao_siscomex.zip",
+                        "mime": "application/zip",
+                    },
+                    tabelas=[("#### Manifesto", manifest_df), ("#### Log de normalização", log_df)],
                 )
+                _render_downloads_salvos(aba)
 
         except Exception as e:
             st.error(f"Ocorreu um erro ao processar: {e}")
+
+    if not gerar:
+        _render_downloads_salvos(aba)
 
     st.markdown(
         """
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.1<br>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.2<br>
             Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
