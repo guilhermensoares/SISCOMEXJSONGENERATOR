@@ -1,24 +1,57 @@
-import pandas as pd
 import json
 import math
-from io import BytesIO
+import re
 import unicodedata
+from io import BytesIO
+
+import pandas as pd
 
 # Mapeamento de países
 mapa_paises = {
-    "CHINA": "CN", "ALEMANHA": "DE", "EUA": "US", "ESTADOS UNIDOS": "US",
+    "CHINA": "CN", "CHINA, REPÚBLICA POPULAR": "CN",
+    "ALEMANHA": "DE", "EUA": "US", "ESTADOS UNIDOS": "US",
     "ITÁLIA": "IT", "JAPÃO": "JP", "COREIA DO SUL": "KR", "TAIWAN": "TW",
     "MÉXICO": "MX", "ÍNDIA": "IN", "REINO UNIDO": "GB", "FRANÇA": "FR",
-    "POLÔNIA": "PL", "ESPANHA": "ES", "PORTUGAL": "PT", "BRASIL": "BR"
+    "POLÔNIA": "PL", "ESPANHA": "ES", "PORTUGAL": "PT", "BRASIL": "BR",
+    "TURQUIA": "TR", "ÁUSTRIA": "AT", "REPÚBLICA TCHECA": "CZ",
+    "HUNGRIA": "HU", "PAÍSES BAIXOS": "NL", "SUÉCIA": "SE", "SUÍÇA": "CH",
+    "TAILÂNDIA": "TH"
 }
+
 
 def _norm_txt(x) -> str:
     """Normaliza texto: strip + remove acentos + UPPER."""
-    if x is None:
+    if x is None or pd.isna(x):
         return ""
     s = str(x).strip()
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
     return s.upper()
+
+
+def _valor_vazio(valor) -> bool:
+    return valor is None or pd.isna(valor)
+
+
+def normalizar_sku_king(valor, tamanho: int = 5) -> str:
+    """Normaliza SKU/código interno para evitar '12345.0' e falhas no merge."""
+    if _valor_vazio(valor):
+        return ""
+
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        if float(valor).is_integer():
+            texto = str(int(valor))
+        else:
+            texto = str(valor)
+    else:
+        texto = str(valor)
+
+    texto = texto.strip().replace("\u00a0", "").upper()
+    if re.fullmatch(r"\d+[\.,]0+", texto):
+        texto = re.split(r"[\.,]", texto, maxsplit=1)[0]
+    if texto.isdigit() and len(texto) < tamanho:
+        texto = texto.zfill(tamanho)
+    return texto
+
 
 def _resolver_col_pais(df: pd.DataFrame) -> str | None:
     """
@@ -32,12 +65,17 @@ def _resolver_col_pais(df: pd.DataFrame) -> str | None:
         if chave in norm_map:
             return norm_map[chave]
 
-    # fallback: primeira coluna que contenha "PAIS"
     candidatos = [c for c in df.columns if "PAIS" in _norm_txt(c)]
     return candidatos[0] if candidatos else None
 
+
+def _coluna_obrigatoria(df: pd.DataFrame, nome: str, origem: str):
+    if nome not in df.columns:
+        raise ValueError(f"A coluna '{nome}' não foi encontrada em {origem}.")
+
+
 def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int = 100):
-    # ✅ Leitura correta do CSV exportado pelo Siscomex
+    # Leitura do CSV exportado pelo Siscomex
     df_export = pd.read_csv(
         csv_file,
         sep=",",
@@ -48,13 +86,16 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
     )
     df_export.columns = df_export.columns.str.strip()
 
-    if "Código do produto" not in df_export.columns:
-        raise ValueError("A coluna 'Código interno do produto' não foi encontrada no CSV.")
+    _coluna_obrigatoria(df_export, "Código do produto", "CSV exportado do Siscomex")
+    _coluna_obrigatoria(df_export, "Código interno do produto", "CSV exportado do Siscomex")
 
-    # ✅ Leitura da planilha base
-    df_base = pd.read_excel(excel_file, sheet_name="Planilha1", dtype=str)
-    df_base["COD. KING"] = df_base["COD. KING"].astype(str).str.strip().str.upper()
-    df_export["Código interno do produto"] = df_export["Código interno do produto"].astype(str).str.strip().str.upper()
+    # Leitura da planilha base
+    df_base = pd.read_excel(excel_file, sheet_name="Planilha1", dtype=object)
+    df_base.columns = df_base.columns.str.strip()
+    _coluna_obrigatoria(df_base, "COD. KING", "planilha base")
+
+    df_base["COD. KING"] = df_base["COD. KING"].apply(normalizar_sku_king)
+    df_export["Código interno do produto"] = df_export["Código interno do produto"].apply(normalizar_sku_king)
 
     # Merge entre o CSV e a base de itens
     df = df_export.merge(
@@ -65,6 +106,8 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
         indicator=True
     )
 
+    col_pais = _resolver_col_pais(df)
+
     # Loteamento
     lotes_df = [df[i:i + tamanho_lote] for i in range(0, len(df), tamanho_lote)]
     resultados = []
@@ -74,11 +117,11 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
         seq = 1
 
         for _, row in lote.iterrows():
-            pais_nome = str(row.get("País", "")).strip().upper()
+            pais_nome = _norm_txt(row.get(col_pais, "")) if col_pais else ""
             codigo_pais = mapa_paises.get(pais_nome, "XX")
 
-            cod_exportador = str(row.get("Código Operador Estrangeiro Exportador", "")).strip()
-            cod_fabricante = str(row.get("Código Operador Estrangeiro Fabricante", "")).strip()
+            cod_exportador = str(row.get("Código Operador Estrangeiro Exportador", "") or "").strip()
+            cod_fabricante = str(row.get("Código Operador Estrangeiro Fabricante", "") or "").strip()
             fabricante_conhecido = True
 
             try:
@@ -111,7 +154,6 @@ def processar_vinculos(csv_file, excel_file, cnpj_raiz: str, tamanho_lote: int =
                 })
                 seq += 1
 
-        # Salva lote em memória
         nome = f"{cnpj_raiz}_VINCULOS_FABRICANTE_EXPORTADOR_Lote{i}.json"
         buffer = BytesIO()
         json_str = json.dumps(saida, ensure_ascii=False, indent=4)

@@ -1,7 +1,9 @@
-import pandas as pd
 import json
 import math
+import re
 from io import BytesIO
+
+import pandas as pd
 
 mapa_paises = {
     "CHINA": "CN", "CHINA, REPÚBLICA POPULAR": "CN",
@@ -14,8 +16,77 @@ mapa_paises = {
     "TAILÂNDIA": "TH"
 }
 
+
+def _valor_vazio(valor) -> bool:
+    """Retorna True para valores vazios/NaN vindos do Excel."""
+    return valor is None or pd.isna(valor)
+
+
+def normalizar_sku_king(valor, tamanho: int = 5) -> str:
+    """
+    Normaliza SKU King para evitar saídas como '12345.0'.
+
+    Regras:
+    - Remove espaços e espaços não quebráveis;
+    - Converte números inteiros lidos como float pelo pandas: 12345.0 -> 12345;
+    - Remove sufixos decimais zerados em texto: '12345.0', '12345.00', '12345,0';
+    - Preenche com zero à esquerda quando o código numérico tiver menos de 5 dígitos.
+    """
+    if _valor_vazio(valor):
+        return ""
+
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        if float(valor).is_integer():
+            texto = str(int(valor))
+        else:
+            texto = str(valor)
+    else:
+        texto = str(valor)
+
+    texto = texto.strip().replace("\u00a0", "")
+
+    # Ex.: '12345.0', '12345.00', '12345,0'
+    if re.fullmatch(r"\d+[\.,]0+", texto):
+        texto = re.split(r"[\.,]", texto, maxsplit=1)[0]
+
+    # Ex.: '12345,000' após exportações regionais
+    if re.fullmatch(r"\d+", texto) and len(texto) < tamanho:
+        texto = texto.zfill(tamanho)
+
+    return texto
+
+
+def normalizar_ncm(valor) -> str:
+    """Normaliza NCM para 8 dígitos quando possível."""
+    if _valor_vazio(valor):
+        return ""
+
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        if float(valor).is_integer():
+            texto = str(int(valor))
+        else:
+            texto = str(valor)
+    else:
+        texto = str(valor)
+
+    texto = texto.strip().replace("\u00a0", "")
+    if re.fullmatch(r"\d+[\.,]0+", texto):
+        texto = re.split(r"[\.,]", texto, maxsplit=1)[0]
+
+    return re.sub(r"\D", "", texto)
+
+
+def normalizar_texto(valor) -> str:
+    if _valor_vazio(valor):
+        return ""
+    return str(valor).strip()
+
+
 def processar_catalogo(planilha_file, cnpj_raiz: str, tamanho_lote: int = 5):
-    df = pd.read_excel(planilha_file, sheet_name="Planilha1")
+    # dtype=object mantém os tipos originais; a normalização é feita campo a campo
+    # para impedir que códigos numéricos virem texto com '.0'.
+    df = pd.read_excel(planilha_file, sheet_name="Planilha1", dtype=object)
+    df.columns = df.columns.str.strip()
 
     pares_cols = [
         (f"Atributo {i}", f"Valor Atributo {i}")
@@ -31,15 +102,15 @@ def processar_catalogo(planilha_file, cnpj_raiz: str, tamanho_lote: int = 5):
 
     for idx, linha in df.iterrows():
         try:
-            cod_interno = str(linha.get("COD. KING", "")).strip()
-            ncm = str(linha.get("NCM", "")).replace(".", "").replace("-", "").strip()
-            denominacao = str(linha.get("DESCRIÇÃO EM PORTUGUÊS", "")).strip()
-            descricao = str(linha.get("DESCRIÇÃO", "")).strip()
+            cod_interno = normalizar_sku_king(linha.get("COD. KING", ""))
+            ncm = normalizar_ncm(linha.get("NCM", ""))
+            denominacao = normalizar_texto(linha.get("DESCRIÇÃO EM PORTUGUÊS", ""))
+            descricao = normalizar_texto(linha.get("DESCRIÇÃO", ""))
 
-            pais_nome = str(linha.get("PAIS", "")).upper().strip()
+            pais_nome = normalizar_texto(linha.get("PAIS", "")).upper()
             codigo_pais = mapa_paises.get(pais_nome, "XX") if pais_nome else "XX"
-            cod_exportador = str(linha.get("Código Operador Estrangeiro Exportador", "")).strip()
-            cod_fabricante = str(linha.get("Código Operador Estrangeiro Fabricante", "")).strip()
+            cod_exportador = normalizar_texto(linha.get("Código Operador Estrangeiro Exportador", ""))
+            cod_fabricante = normalizar_texto(linha.get("Código Operador Estrangeiro Fabricante", ""))
 
             fabricantes_produtores = []
             if cod_exportador:
@@ -49,14 +120,14 @@ def processar_catalogo(planilha_file, cnpj_raiz: str, tamanho_lote: int = 5):
 
             atributos = []
             for col_attr, col_val in pares_cols:
-                attr = str(linha[col_attr]).strip() if pd.notna(linha.get(col_attr)) else ""
+                attr = normalizar_texto(linha.get(col_attr, ""))
                 val_bruto = linha.get(col_val, "")
-                if pd.isna(val_bruto) or not attr:
+                if _valor_vazio(val_bruto) or not attr:
                     continue
 
-                val = str(val_bruto).strip()
-                if val.endswith(".0"):
-                    val = val[:-2]
+                val = normalizar_texto(val_bruto)
+                if re.fullmatch(r"\d+[\.,]0+", val):
+                    val = re.split(r"[\.,]", val, maxsplit=1)[0]
                 if val.isdigit() and len(val) == 1:
                     val = val.zfill(2)
 
