@@ -5,7 +5,8 @@ import streamlit as st
 
 from process_catalogo import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_CATALOGO
 from process_catalogo import processar_catalogo
-from process_edicao_json import editar_jsons_catalogo, gerar_bodies_retificacao
+from process_compactador_aplicacoes import processar_planilha_aplicacoes
+from process_vinculador_siscomex import processar_csvs_siscomex
 from process_vinculos import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_VINCULOS
 from process_vinculos import processar_vinculos
 
@@ -20,8 +21,10 @@ def exibir_logo():
     caminhos_logo = [
         "Logo_branca_600px.png",
         "Logo_branca_600px(1).png",
+        "Logo_branca_600px(2).png",
         "logo-novo-preto.png",
         "logo-novo-preto(1).png",
+        "logo-novo-preto(2).png",
     ]
 
     caminho_encontrado = next((Path(c) for c in caminhos_logo if Path(c).exists()), None)
@@ -60,6 +63,18 @@ def _normalizar_resultados_para_cache(resultados):
     return [(nome_arquivo, _buffer_para_bytes(buffer)) for nome_arquivo, buffer in resultados]
 
 
+def _normalizar_arquivos_para_cache(arquivos):
+    arquivos_normalizados = []
+    for arquivo in arquivos or []:
+        arquivos_normalizados.append({
+            "label": arquivo["label"],
+            "data": _buffer_para_bytes(arquivo["data"]),
+            "file_name": arquivo["file_name"],
+            "mime": arquivo["mime"],
+        })
+    return arquivos_normalizados
+
+
 def _render_download_jsons(resultados):
     for nome_arquivo, buffer in resultados:
         st.download_button(
@@ -70,12 +85,23 @@ def _render_download_jsons(resultados):
         )
 
 
-def _salvar_downloads(aba, mensagem_sucesso, jsons=None, zip_info=None, tabelas=None):
+def _render_download_arquivos(arquivos):
+    for arquivo in arquivos:
+        st.download_button(
+            label=arquivo["label"],
+            data=arquivo["data"],
+            file_name=arquivo["file_name"],
+            mime=arquivo["mime"],
+        )
+
+
+def _salvar_downloads(aba, mensagem_sucesso, jsons=None, arquivos=None, zip_info=None, tabelas=None):
     """Guarda os arquivos gerados para que os botões de download permaneçam na tela."""
     st.session_state[DOWNLOAD_CACHE_KEY] = {
         "aba": aba,
         "mensagem_sucesso": mensagem_sucesso,
         "jsons": _normalizar_resultados_para_cache(jsons or []),
+        "arquivos": _normalizar_arquivos_para_cache(arquivos or []),
         "zip_info": zip_info,
         "tabelas": tabelas or [],
     }
@@ -102,12 +128,13 @@ def _render_downloads_salvos(aba):
             mime=zip_info["mime"],
         )
 
+    _render_download_arquivos(cache.get("arquivos", []))
     _render_download_jsons(cache.get("jsons", []))
 
 
 def _alerta_loteamento():
     st.info(
-        f"Regra fixa: todos os arquivos consolidados são gerados com no máximo "
+        f"Regra fixa: os JSONs de Catálogo e Vínculo são gerados com no máximo "
         f"{LIMITE_REGISTROS_POR_ARQUIVO} registros por arquivo."
     )
 
@@ -121,8 +148,8 @@ def tela_principal():
         [
             "Catálogo de Produtos",
             "Vínculo Fabricante–Exportador",
-            "Corrigir JSON de Lote",
-            "Gerar Body de Retificação",
+            "Compactador de Aplicações",
+            "Vinculador Código Siscomex",
         ],
         horizontal=False,
     )
@@ -151,87 +178,33 @@ def tela_principal():
             excel = st.file_uploader("Base de dados King Imports (planilha Excel)", type=["xlsx"], key="excel_vinculo")
             gerar = st.form_submit_button("Gerar JSON")
 
-        elif aba == "Corrigir JSON de Lote":
-            st.markdown("### Corrigir JSON de lote já gerado")
+        elif aba == "Compactador de Aplicações":
+            st.markdown("### Compactar aplicações na descrição da DUIMP")
             st.caption(
-                "Mantém a estrutura de cadastro em lote, corrige codigosInterno e quebra a saída em arquivos de até 100 registros. "
-                "Exemplo: 53907.0 → 53907."
+                "Lê a coluna de descrição e reduz repetições de aplicação por ano. "
+                "Exemplo: BMW X1 2012 / BMW X1 2013 / BMW X1 2014 → BMW X1 2012 a 2014."
             )
-            json_files = st.file_uploader(
-                "Selecione um ou mais JSONs de catálogo",
-                type=["json"],
-                accept_multiple_files=True,
-                key="json_edicao_lote",
+            planilha_compactador = st.file_uploader(
+                "Selecione a planilha de itens (.xlsx)",
+                type=["xlsx"],
+                key="planilha_compactador",
             )
-
-            st.markdown("#### De/Para opcional")
-            usar_de_para = st.checkbox("Aplicar planilha de de/para")
-            if usar_de_para:
-                arquivo_de_para = st.file_uploader(
-                    "Planilha de de/para (.xlsx ou .csv)",
-                    type=["xlsx", "csv"],
-                    key="de_para_codigos_lote",
-                )
-                coluna_de = st.text_input("Coluna do código atual/original", value="SKU_ORIGINAL")
-                coluna_para = st.text_input("Coluna do código novo/final", value="SKU_NOVO")
-            else:
-                arquivo_de_para = None
-                coluna_de = "SKU_ORIGINAL"
-                coluna_para = "SKU_NOVO"
-
-            gerar = st.form_submit_button("Corrigir JSON")
+            coluna_descricao = st.text_input("Coluna de descrição", value="DESCRIÇÃO")
+            gerar = st.form_submit_button("Compactar aplicações")
 
         else:
-            st.markdown("### Gerar body de edição/retificação")
+            st.markdown("### Vincular SKU x Código Siscomex")
             st.caption(
-                "Converte o JSON de lote para o body aceito na edição/retificação de produto existente. "
-                "Remove seq, cpfCnpjRaiz, situacao e fabricantesProdutores. "
-                "Também corrige codigosInterno e quebra pacotes consolidados em arquivos de até 100 registros."
+                "Recebe um ou mais CSVs exportados do Catálogo de Produtos Siscomex, "
+                "filtra apenas Situação = Ativado e gera a planilha SKU x código SISCOMEX."
             )
-            json_files = st.file_uploader(
-                "Selecione um ou mais JSONs de lote do catálogo",
-                type=["json"],
+            csvs_siscomex = st.file_uploader(
+                "Selecione os CSVs exportados do Siscomex",
+                type=["csv"],
                 accept_multiple_files=True,
-                key="json_retificacao",
+                key="csvs_siscomex_vinculador",
             )
-
-            st.markdown("#### De/Para opcional de SKU")
-            usar_de_para = st.checkbox("Aplicar planilha de de/para para codigosInterno", key="chk_de_para_ret")
-            if usar_de_para:
-                arquivo_de_para = st.file_uploader(
-                    "Planilha de de/para (.xlsx ou .csv)",
-                    type=["xlsx", "csv"],
-                    key="de_para_codigos_ret",
-                )
-                coluna_de = st.text_input("Coluna do código atual/original", value="SKU_ORIGINAL", key="col_de_ret")
-                coluna_para = st.text_input("Coluna do código novo/final", value="SKU_NOVO", key="col_para_ret")
-            else:
-                arquivo_de_para = None
-                coluna_de = "SKU_ORIGINAL"
-                coluna_para = "SKU_NOVO"
-
-            st.markdown("#### Path da API opcional")
-            st.caption(
-                "Para gerar pacote com path + body, envie uma planilha com SKU, código do produto Siscomex e versão. "
-                "Se não enviar, o app gera apenas os bodies."
-            )
-            usar_path = st.checkbox("Tenho planilha com Código Produto Siscomex e Versão", key="chk_path_ret")
-            if usar_path:
-                arquivo_path = st.file_uploader(
-                    "Planilha de path (.xlsx ou .csv)",
-                    type=["xlsx", "csv"],
-                    key="path_ret",
-                )
-                coluna_sku_path = st.text_input("Coluna SKU", value="SKU")
-                coluna_codigo_path = st.text_input("Coluna Código Produto Siscomex", value="CODIGO_PRODUTO_SISCOMEX")
-                coluna_versao_path = st.text_input("Coluna Versão", value="VERSAO")
-            else:
-                arquivo_path = None
-                coluna_sku_path = "SKU"
-                coluna_codigo_path = "CODIGO_PRODUTO_SISCOMEX"
-                coluna_versao_path = "VERSAO"
-
-            gerar = st.form_submit_button("Gerar body de retificação")
+            gerar = st.form_submit_button("Gerar planilha SKU x Siscomex")
 
     if gerar:
         try:
@@ -259,75 +232,60 @@ def tela_principal():
                 _salvar_downloads(aba, mensagem, jsons=resultados)
                 _render_downloads_salvos(aba)
 
-            elif aba == "Corrigir JSON de Lote":
-                if not json_files:
-                    st.error("Por favor, envie ao menos um JSON para corrigir.")
-                    return
-                if usar_de_para and arquivo_de_para is None:
-                    st.error("Você marcou de/para, mas não enviou a planilha.")
+            elif aba == "Compactador de Aplicações":
+                if not planilha_compactador:
+                    st.error("Por favor, envie a planilha.")
                     return
 
-                resultados, log_df, zip_buffer = editar_jsons_catalogo(
-                    json_files,
-                    arquivo_de_para=arquivo_de_para,
-                    coluna_de=coluna_de,
-                    coluna_para=coluna_para,
+                buffer_excel, df_compactado, log_df, qtd_alteradas = processar_planilha_aplicacoes(
+                    planilha_compactador,
+                    coluna_descricao=coluna_descricao,
                 )
 
-                mensagem = (
-                    f"Processamento concluído. Arquivos gerados: {len(resultados)} | "
-                    f"Códigos alterados: {len(log_df)}"
-                )
+                mensagem = f"Planilha processada. Descrições alteradas: {qtd_alteradas}"
                 _salvar_downloads(
                     aba,
                     mensagem,
-                    jsons=resultados,
-                    zip_info={
-                        "label": "📦 Baixar JSONs corrigidos + log (.zip)",
-                        "data": _buffer_para_bytes(zip_buffer),
-                        "file_name": "jsons_catalogo_corrigidos.zip",
-                        "mime": "application/zip",
-                    },
-                    tabelas=[("", log_df)],
+                    arquivos=[{
+                        "label": "📥 Baixar planilha com aplicações compactadas",
+                        "data": buffer_excel,
+                        "file_name": "planilha_aplicacoes_compactadas.xlsx",
+                        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    }],
+                    tabelas=[
+                        ("#### Prévia da planilha processada", df_compactado.head(100)),
+                        ("#### Log de descrições alteradas", log_df.head(200)),
+                    ],
                 )
                 _render_downloads_salvos(aba)
 
             else:
-                if not json_files:
-                    st.error("Por favor, envie ao menos um JSON de lote.")
-                    return
-                if usar_de_para and arquivo_de_para is None:
-                    st.error("Você marcou de/para, mas não enviou a planilha.")
-                    return
-                if usar_path and arquivo_path is None:
-                    st.error("Você marcou path da API, mas não enviou a planilha.")
+                if not csvs_siscomex:
+                    st.error("Por favor, envie ao menos um CSV exportado do Siscomex.")
                     return
 
-                bodies, manifest_df, log_df, zip_buffer = gerar_bodies_retificacao(
-                    json_files,
-                    arquivo_de_para=arquivo_de_para,
-                    coluna_de=coluna_de,
-                    coluna_para=coluna_para,
-                    arquivo_path=arquivo_path,
-                    coluna_sku_path=coluna_sku_path,
-                    coluna_codigo_path=coluna_codigo_path,
-                    coluna_versao_path=coluna_versao_path,
+                buffer_excel, df_final, log_df, arquivos_processados, arquivos_encontrados = processar_csvs_siscomex(
+                    csvs_siscomex
                 )
 
                 mensagem = (
-                    f"Bodies individuais gerados: {len(bodies)} | "
-                    "Pacotes consolidados quebrados em lotes de até 100 registros"
+                    f"Planilha SKU x Siscomex gerada. Registros ativos: {len(df_final)} | "
+                    f"CSVs processados: {arquivos_processados}/{arquivos_encontrados}"
                 )
+                tabelas = [("#### Prévia da vinculação SKU x código SISCOMEX", df_final.head(200))]
+                if not log_df.empty:
+                    tabelas.append(("#### Arquivos com inconsistência", log_df))
+
                 _salvar_downloads(
                     aba,
                     mensagem,
-                    zip_info={
-                        "label": "📦 Baixar pacote de retificação (.zip)",
-                        "data": _buffer_para_bytes(zip_buffer),
-                        "file_name": "pacote_bodies_retificacao_siscomex.zip",
-                        "mime": "application/zip",
-                    },
-                    tabelas=[("#### Manifesto", manifest_df), ("#### Log de normalização", log_df)],
+                    arquivos=[{
+                        "label": "📥 Baixar SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx",
+                        "data": buffer_excel,
+                        "file_name": "SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx",
+                        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    }],
+                    tabelas=tabelas,
                 )
                 _render_downloads_salvos(aba)
 
@@ -341,7 +299,7 @@ def tela_principal():
         """
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.2<br>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.3<br>
             Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
