@@ -117,6 +117,35 @@ def _valor_log(row, coluna, padrao=""):
     return texto
 
 
+def _selecionar_pasta_local() -> str:
+    """Abre o seletor nativo de pasta no computador onde o Streamlit está rodando."""
+    root = None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        pasta = filedialog.askdirectory(
+            title="Selecione a pasta que contém os CSVs exportados do Catálogo Siscomex"
+        )
+        return pasta or ""
+    except Exception as exc:
+        st.error(
+            "Não consegui abrir o seletor de pasta. "
+            "Se o app estiver rodando em servidor/nuvem, o seletor nativo pode não estar disponível. "
+            f"Detalhe técnico: {exc}"
+        )
+        return ""
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+
 def _render_comparativo_aplicacoes(log_df):
     if log_df is None or log_df.empty:
         st.info("Nenhuma descrição foi alterada.")
@@ -248,6 +277,26 @@ def tela_principal():
     if cache_atual and cache_atual.get("aba") != aba:
         st.session_state.pop(DOWNLOAD_CACHE_KEY, None)
 
+    if aba == "Vinculador Código Siscomex":
+        st.markdown("### Vincular SKU x Código Siscomex")
+        st.caption(
+            "Selecione a pasta onde estão os CSVs exportados do Catálogo de Produtos Siscomex. "
+            "O app lê todos os CSVs da pasta, abre/cria a planilha SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx "
+            "na mesma pasta e preenche apenas os vínculos faltantes."
+        )
+        col_botao_pasta, col_ajuda_pasta = st.columns([1, 3])
+        with col_botao_pasta:
+            if st.button("📂 Selecionar pasta dos CSVs", key="btn_selecionar_pasta_siscomex"):
+                pasta_selecionada = _selecionar_pasta_local()
+                if pasta_selecionada:
+                    st.session_state["caminho_pasta_siscomex"] = pasta_selecionada
+                    st.success(f"Pasta selecionada: {pasta_selecionada}")
+        with col_ajuda_pasta:
+            st.info(
+                "O seletor abre a janela nativa do Windows no computador onde o app está rodando. "
+                "Depois de selecionar a pasta, clique em Atualizar planilha SKU x Siscomex."
+            )
+
     with st.form("form_json"):
         if aba in ["Catálogo de Produtos", "Vínculo Fabricante–Exportador"]:
             cnpj = st.text_input("CNPJ Raiz", value="04307549", max_chars=8)
@@ -283,12 +332,6 @@ def tela_principal():
             gerar = st.form_submit_button("Compactar aplicações")
 
         else:
-            st.markdown("### Vincular SKU x Código Siscomex")
-            st.caption(
-                "Informe a pasta onde estão os CSVs exportados do Catálogo de Produtos Siscomex. "
-                "O app lê todos os CSVs da pasta, abre/cria a planilha SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx "
-                "na mesma pasta e preenche apenas os vínculos faltantes."
-            )
             caminho_pasta_siscomex = st.text_input(
                 "Caminho da pasta dos CSVs Siscomex",
                 placeholder=r"Ex.: C:\Users\guilherme.soares\Desktop\CATALOGO_SISCOMEX",
@@ -409,7 +452,7 @@ def tela_principal():
         """
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.5<br>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.6<br>
             Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
