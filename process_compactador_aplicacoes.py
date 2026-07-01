@@ -14,6 +14,14 @@ correcoes = {
 }
 
 
+_COLUNAS_CONTEXTO_LOG = [
+    ("SKU", ["SKU", "COD. KING", "COD KING", "CÓD. KING", "CODIGO KING", "CÓDIGO KING", "COD. PRODUTO", "COD PRODUTO"]),
+    ("COD FAB", ["COD FAB", "CÓD FAB", "COD. FAB", "CÓD. FAB", "COD FABRICANTE", "CÓD FABRICANTE", "COD. FABRICANTE", "CÓD. FABRICANTE"]),
+    ("NCM", ["NCM"]),
+    ("DESCRIÇÃO EM PORTUGUES", ["DESCRIÇÃO EM PORTUGUES", "DESCRIÇÃO EM PORTUGUÊS", "DESCRICAO EM PORTUGUES", "DESCRICAO EM PORTUGUÊS"]),
+]
+
+
 def compactar_anos(lista_anos):
     lista_anos = sorted(set(lista_anos))
     if not lista_anos:
@@ -100,6 +108,52 @@ def _resolver_coluna(df: pd.DataFrame, nome_coluna: str) -> str | None:
     return None
 
 
+def _resolver_primeira_coluna(df: pd.DataFrame, candidatos: list[str]) -> str | None:
+    for candidato in candidatos:
+        coluna = _resolver_coluna(df, candidato)
+        if coluna:
+            return coluna
+    return None
+
+
+def _montar_log_alteracoes(
+    df_original: pd.DataFrame,
+    coluna_descricao: str,
+    descricoes_originais: pd.Series,
+    descricoes_processadas: pd.Series,
+) -> pd.DataFrame:
+    mask = descricoes_originais != descricoes_processadas
+    indices_alterados = list(df_original.index[mask])
+
+    dados_log = {
+        "linha_excel": [int(i) + 2 for i in indices_alterados],
+    }
+
+    for nome_saida, candidatos in _COLUNAS_CONTEXTO_LOG:
+        coluna = _resolver_primeira_coluna(df_original, candidatos)
+        if coluna:
+            dados_log[nome_saida] = df_original.loc[mask, coluna].astype(str).tolist()
+
+    originais = descricoes_originais.loc[mask].astype(str)
+    compactadas = descricoes_processadas.loc[mask].astype(str)
+
+    dados_log["descricao_original"] = originais.tolist()
+    dados_log["descricao_compactada"] = compactadas.tolist()
+    dados_log["caracteres_original"] = originais.str.len().astype(int).tolist()
+    dados_log["caracteres_compactada"] = compactadas.str.len().astype(int).tolist()
+
+    log_df = pd.DataFrame(dados_log)
+
+    if not log_df.empty:
+        log_df["reducao_caracteres"] = log_df["caracteres_original"] - log_df["caracteres_compactada"]
+        log_df["reducao_%"] = (
+            (log_df["reducao_caracteres"] / log_df["caracteres_original"].replace(0, pd.NA)) * 100
+        ).round(2)
+        log_df.insert(1, "coluna_alterada", coluna_descricao)
+
+    return log_df
+
+
 def processar_planilha_aplicacoes(planilha_file, coluna_descricao: str = "DESCRIÇÃO"):
     """
     Processa a planilha de itens compactando as aplicações dentro da coluna de descrição.
@@ -117,22 +171,22 @@ def processar_planilha_aplicacoes(planilha_file, coluna_descricao: str = "DESCRI
             f"Colunas disponíveis: {', '.join(map(str, df.columns))}"
         )
 
+    df_original = df.copy()
     descricoes_originais = df[coluna].astype(str)
     descricoes_processadas = descricoes_originais.apply(processar_descricao)
     descricoes_processadas = descricoes_processadas.str.replace(r"\bBmw\b", "BMW", regex=True)
 
     df[coluna] = descricoes_processadas
 
-    alteradas = (descricoes_originais != descricoes_processadas).sum()
-
-    log_df = pd.DataFrame({
-        "linha_excel": [i + 2 for i, mudou in enumerate(descricoes_originais != descricoes_processadas) if mudou],
-        "descricao_original": descricoes_originais[descricoes_originais != descricoes_processadas].tolist(),
-        "descricao_compactada": descricoes_processadas[descricoes_originais != descricoes_processadas].tolist(),
-    })
+    log_df = _montar_log_alteracoes(
+        df_original=df_original,
+        coluna_descricao=coluna,
+        descricoes_originais=descricoes_originais,
+        descricoes_processadas=descricoes_processadas,
+    )
 
     buffer = BytesIO()
     df.to_excel(buffer, index=False, engine="openpyxl")
     buffer.seek(0)
 
-    return buffer, df, log_df, int(alteradas)
+    return buffer, df, log_df, int(len(log_df))

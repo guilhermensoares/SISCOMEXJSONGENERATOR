@@ -1,6 +1,8 @@
 import base64
+from io import BytesIO
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 from process_catalogo import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_CATALOGO
@@ -14,7 +16,7 @@ from process_vinculos import processar_vinculos
 LIMITE_REGISTROS_POR_ARQUIVO = 100
 DOWNLOAD_CACHE_KEY = "downloads_gerados_siscomex"
 
-st.set_page_config(page_title="King Imports - SISCOMEX JSON Generator", layout="centered")
+st.set_page_config(page_title="King Imports - SISCOMEX JSON Generator", layout="wide")
 
 
 def exibir_logo():
@@ -95,7 +97,90 @@ def _render_download_arquivos(arquivos):
         )
 
 
-def _salvar_downloads(aba, mensagem_sucesso, jsons=None, arquivos=None, zip_info=None, tabelas=None):
+def _dataframe_para_excel_bytes(dataframe, sheet_name="Log") -> bytes:
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        dataframe.to_excel(writer, index=False, sheet_name=sheet_name[:31])
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def _valor_log(row, coluna, padrao=""):
+    if coluna not in row.index:
+        return padrao
+    valor = row.get(coluna, padrao)
+    if valor is None:
+        return padrao
+    texto = str(valor).strip()
+    if texto.lower() == "nan":
+        return padrao
+    return texto
+
+
+def _render_comparativo_aplicacoes(log_df):
+    if log_df is None or log_df.empty:
+        st.info("Nenhuma descrição foi alterada.")
+        return
+
+    st.markdown("#### Prévia apenas das descrições alteradas")
+    st.caption(
+        "A tabela abaixo mostra somente as linhas alteradas e os ganhos de compactação. "
+        "O comparativo completo antes x depois aparece logo abaixo, em blocos expansíveis."
+    )
+
+    colunas_resumo = [
+        "linha_excel", "SKU", "COD FAB", "NCM", "DESCRIÇÃO EM PORTUGUES",
+        "caracteres_original", "caracteres_compactada", "reducao_caracteres", "reducao_%",
+    ]
+    colunas_resumo = [c for c in colunas_resumo if c in log_df.columns]
+    st.dataframe(log_df[colunas_resumo].head(300), use_container_width=True, height=300)
+
+    st.markdown("#### Comparativo antes x depois")
+    limite_visualizacao = min(len(log_df), 50)
+    st.caption(
+        f"Mostrando {limite_visualizacao} de {len(log_df)} descrições alteradas. "
+        "Baixe o log completo em Excel para auditar todas."
+    )
+
+    for posicao, (_, row) in enumerate(log_df.head(limite_visualizacao).iterrows(), start=1):
+        linha = _valor_log(row, "linha_excel")
+        sku = _valor_log(row, "SKU")
+        cod_fab = _valor_log(row, "COD FAB")
+        reducao = _valor_log(row, "reducao_caracteres", "0")
+        reducao_pct = _valor_log(row, "reducao_%", "0")
+
+        titulo_partes = [f"Linha {linha}"]
+        if sku:
+            titulo_partes.append(f"SKU {sku}")
+        if cod_fab:
+            titulo_partes.append(f"Cód. Fab {cod_fab}")
+        titulo_partes.append(f"redução {reducao} caracteres ({reducao_pct}%)")
+
+        with st.expander(" | ".join(titulo_partes), expanded=posicao <= 3):
+            col_antes, col_depois = st.columns(2)
+            with col_antes:
+                st.markdown("**Antes**")
+                st.text_area(
+                    "Descrição original",
+                    value=_valor_log(row, "descricao_original"),
+                    height=240,
+                    disabled=True,
+                    key=f"orig_aplic_{linha}_{posicao}",
+                    label_visibility="collapsed",
+                )
+            with col_depois:
+                st.markdown("**Depois**")
+                st.text_area(
+                    "Descrição compactada",
+                    value=_valor_log(row, "descricao_compactada"),
+                    height=240,
+                    disabled=True,
+                    key=f"comp_aplic_{linha}_{posicao}",
+                    label_visibility="collapsed",
+                )
+
+
+def _salvar_downloads(aba, mensagem_sucesso, jsons=None, arquivos=None, zip_info=None, tabelas=None, comparativo_aplicacoes=None):
     """Guarda os arquivos gerados para que os botões de download permaneçam na tela."""
     st.session_state[DOWNLOAD_CACHE_KEY] = {
         "aba": aba,
@@ -104,6 +189,7 @@ def _salvar_downloads(aba, mensagem_sucesso, jsons=None, arquivos=None, zip_info
         "arquivos": _normalizar_arquivos_para_cache(arquivos or []),
         "zip_info": zip_info,
         "tabelas": tabelas or [],
+        "comparativo_aplicacoes": comparativo_aplicacoes,
     }
 
 
@@ -113,6 +199,10 @@ def _render_downloads_salvos(aba):
         return
 
     st.success(cache.get("mensagem_sucesso", "Arquivos gerados."))
+
+    comparativo_aplicacoes = cache.get("comparativo_aplicacoes")
+    if comparativo_aplicacoes is not None:
+        _render_comparativo_aplicacoes(comparativo_aplicacoes)
 
     for titulo, dataframe in cache.get("tabelas", []):
         if titulo:
@@ -243,19 +333,25 @@ def tela_principal():
                 )
 
                 mensagem = f"Planilha processada. Descrições alteradas: {qtd_alteradas}"
+                arquivos_download = [{
+                    "label": "📥 Baixar planilha com aplicações compactadas",
+                    "data": buffer_excel,
+                    "file_name": "planilha_aplicacoes_compactadas.xlsx",
+                    "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                }]
+                if not log_df.empty:
+                    arquivos_download.append({
+                        "label": "📋 Baixar log comparativo das alterações",
+                        "data": _dataframe_para_excel_bytes(log_df, sheet_name="Alteracoes"),
+                        "file_name": "log_comparativo_aplicacoes.xlsx",
+                        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    })
+
                 _salvar_downloads(
                     aba,
                     mensagem,
-                    arquivos=[{
-                        "label": "📥 Baixar planilha com aplicações compactadas",
-                        "data": buffer_excel,
-                        "file_name": "planilha_aplicacoes_compactadas.xlsx",
-                        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    }],
-                    tabelas=[
-                        ("#### Prévia da planilha processada", df_compactado.head(100)),
-                        ("#### Log de descrições alteradas", log_df.head(200)),
-                    ],
+                    arquivos=arquivos_download,
+                    comparativo_aplicacoes=log_df,
                 )
                 _render_downloads_salvos(aba)
 
@@ -299,7 +395,7 @@ def tela_principal():
         """
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.3<br>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.4<br>
             Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
