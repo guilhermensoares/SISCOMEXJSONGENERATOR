@@ -8,7 +8,6 @@ import streamlit as st
 from process_catalogo import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_CATALOGO
 from process_catalogo import processar_catalogo
 from process_compactador_aplicacoes import processar_planilha_aplicacoes
-from process_vinculador_siscomex import processar_pasta_siscomex
 from process_vinculos import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_VINCULOS
 from process_vinculos import processar_vinculos
 
@@ -115,35 +114,6 @@ def _valor_log(row, coluna, padrao=""):
     if texto.lower() == "nan":
         return padrao
     return texto
-
-
-def _selecionar_pasta_local() -> str:
-    """Abre o seletor nativo de pasta no computador onde o Streamlit está rodando."""
-    root = None
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        pasta = filedialog.askdirectory(
-            title="Selecione a pasta que contém os CSVs exportados do Catálogo Siscomex"
-        )
-        return pasta or ""
-    except Exception as exc:
-        st.error(
-            "Não consegui abrir o seletor de pasta. "
-            "Se o app estiver rodando em servidor/nuvem, o seletor nativo pode não estar disponível. "
-            f"Detalhe técnico: {exc}"
-        )
-        return ""
-    finally:
-        if root is not None:
-            try:
-                root.destroy()
-            except Exception:
-                pass
 
 
 def _render_comparativo_aplicacoes(log_df):
@@ -268,7 +238,6 @@ def tela_principal():
             "Catálogo de Produtos",
             "Vínculo Fabricante–Exportador",
             "Compactador de Aplicações",
-            "Vinculador Código Siscomex",
         ],
         horizontal=False,
     )
@@ -276,26 +245,6 @@ def tela_principal():
     cache_atual = st.session_state.get(DOWNLOAD_CACHE_KEY)
     if cache_atual and cache_atual.get("aba") != aba:
         st.session_state.pop(DOWNLOAD_CACHE_KEY, None)
-
-    if aba == "Vinculador Código Siscomex":
-        st.markdown("### Vincular SKU x Código Siscomex")
-        st.caption(
-            "Selecione a pasta onde estão os CSVs exportados do Catálogo de Produtos Siscomex. "
-            "O app lê todos os CSVs da pasta, abre/cria a planilha SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx "
-            "na mesma pasta e preenche apenas os vínculos faltantes."
-        )
-        col_botao_pasta, col_ajuda_pasta = st.columns([1, 3])
-        with col_botao_pasta:
-            if st.button("📂 Selecionar pasta dos CSVs", key="btn_selecionar_pasta_siscomex"):
-                pasta_selecionada = _selecionar_pasta_local()
-                if pasta_selecionada:
-                    st.session_state["caminho_pasta_siscomex"] = pasta_selecionada
-                    st.success(f"Pasta selecionada: {pasta_selecionada}")
-        with col_ajuda_pasta:
-            st.info(
-                "O seletor abre a janela nativa do Windows no computador onde o app está rodando. "
-                "Depois de selecionar a pasta, clique em Atualizar planilha SKU x Siscomex."
-            )
 
     with st.form("form_json"):
         if aba in ["Catálogo de Produtos", "Vínculo Fabricante–Exportador"]:
@@ -330,14 +279,6 @@ def tela_principal():
             )
             coluna_descricao = st.text_input("Coluna de descrição", value="DESCRIÇÃO")
             gerar = st.form_submit_button("Compactar aplicações")
-
-        else:
-            caminho_pasta_siscomex = st.text_input(
-                "Caminho da pasta dos CSVs Siscomex",
-                placeholder=r"Ex.: C:\Users\guilherme.soares\Desktop\CATALOGO_SISCOMEX",
-                key="caminho_pasta_siscomex",
-            )
-            gerar = st.form_submit_button("Atualizar planilha SKU x Siscomex")
 
     if gerar:
         try:
@@ -398,50 +339,6 @@ def tela_principal():
                 )
                 _render_downloads_salvos(aba)
 
-            else:
-                if not caminho_pasta_siscomex:
-                    st.error("Por favor, informe o caminho da pasta onde estão os CSVs do Siscomex.")
-                    return
-
-                buffer_excel, df_final, log_df, estatisticas = processar_pasta_siscomex(caminho_pasta_siscomex)
-
-                mensagem = (
-                    "Planilha SKU x Siscomex atualizada na pasta. "
-                    f"Preenchidos: {estatisticas['codigos_preenchidos_em_skus_existentes']} | "
-                    f"SKUs novos adicionados: {estatisticas['skus_novos_adicionados']} | "
-                    f"CSVs processados: {estatisticas['arquivos_csv_processados']}/{estatisticas['arquivos_csv_encontrados']}"
-                )
-
-                stats_df = pd.DataFrame([estatisticas])
-                tabelas = [
-                    ("#### Resumo do processamento", stats_df),
-                    ("#### Prévia da planilha SKU x código SISCOMEX atualizada", df_final.head(200)),
-                ]
-                if not log_df.empty:
-                    tabelas.append(("#### Log de inconsistências/conflitos", log_df))
-
-                arquivos_download = [{
-                    "label": "📥 Baixar SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx atualizado",
-                    "data": buffer_excel,
-                    "file_name": "SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx",
-                    "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                }]
-                if not log_df.empty:
-                    arquivos_download.append({
-                        "label": "📋 Baixar log do vinculador Siscomex",
-                        "data": _dataframe_para_excel_bytes(log_df, sheet_name="Log"),
-                        "file_name": "log_vinculador_siscomex.xlsx",
-                        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    })
-
-                _salvar_downloads(
-                    aba,
-                    mensagem,
-                    arquivos=arquivos_download,
-                    tabelas=tabelas,
-                )
-                _render_downloads_salvos(aba)
-
         except Exception as e:
             st.error(f"Ocorreu um erro ao processar: {e}")
 
@@ -452,7 +349,7 @@ def tela_principal():
         """
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.6<br>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.8<br>
             Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
