@@ -8,7 +8,7 @@ import streamlit as st
 from process_catalogo import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_CATALOGO
 from process_catalogo import processar_catalogo
 from process_compactador_aplicacoes import processar_planilha_aplicacoes
-from process_vinculador_siscomex import processar_csvs_siscomex
+from process_vinculador_siscomex import processar_pasta_siscomex
 from process_vinculos import LIMITE_REGISTROS_POR_ARQUIVO as LIMITE_VINCULOS
 from process_vinculos import processar_vinculos
 
@@ -285,16 +285,16 @@ def tela_principal():
         else:
             st.markdown("### Vincular SKU x Código Siscomex")
             st.caption(
-                "Recebe um ou mais CSVs exportados do Catálogo de Produtos Siscomex, "
-                "filtra apenas Situação = Ativado e gera a planilha SKU x código SISCOMEX."
+                "Informe a pasta onde estão os CSVs exportados do Catálogo de Produtos Siscomex. "
+                "O app lê todos os CSVs da pasta, abre/cria a planilha SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx "
+                "na mesma pasta e preenche apenas os vínculos faltantes."
             )
-            csvs_siscomex = st.file_uploader(
-                "Selecione os CSVs exportados do Siscomex",
-                type=["csv"],
-                accept_multiple_files=True,
-                key="csvs_siscomex_vinculador",
+            caminho_pasta_siscomex = st.text_input(
+                "Caminho da pasta dos CSVs Siscomex",
+                placeholder=r"Ex.: C:\Users\guilherme.soares\Desktop\CATALOGO_SISCOMEX",
+                key="caminho_pasta_siscomex",
             )
-            gerar = st.form_submit_button("Gerar planilha SKU x Siscomex")
+            gerar = st.form_submit_button("Atualizar planilha SKU x Siscomex")
 
     if gerar:
         try:
@@ -356,31 +356,45 @@ def tela_principal():
                 _render_downloads_salvos(aba)
 
             else:
-                if not csvs_siscomex:
-                    st.error("Por favor, envie ao menos um CSV exportado do Siscomex.")
+                if not caminho_pasta_siscomex:
+                    st.error("Por favor, informe o caminho da pasta onde estão os CSVs do Siscomex.")
                     return
 
-                buffer_excel, df_final, log_df, arquivos_processados, arquivos_encontrados = processar_csvs_siscomex(
-                    csvs_siscomex
-                )
+                buffer_excel, df_final, log_df, estatisticas = processar_pasta_siscomex(caminho_pasta_siscomex)
 
                 mensagem = (
-                    f"Planilha SKU x Siscomex gerada. Registros ativos: {len(df_final)} | "
-                    f"CSVs processados: {arquivos_processados}/{arquivos_encontrados}"
+                    "Planilha SKU x Siscomex atualizada na pasta. "
+                    f"Preenchidos: {estatisticas['codigos_preenchidos_em_skus_existentes']} | "
+                    f"SKUs novos adicionados: {estatisticas['skus_novos_adicionados']} | "
+                    f"CSVs processados: {estatisticas['arquivos_csv_processados']}/{estatisticas['arquivos_csv_encontrados']}"
                 )
-                tabelas = [("#### Prévia da vinculação SKU x código SISCOMEX", df_final.head(200))]
+
+                stats_df = pd.DataFrame([estatisticas])
+                tabelas = [
+                    ("#### Resumo do processamento", stats_df),
+                    ("#### Prévia da planilha SKU x código SISCOMEX atualizada", df_final.head(200)),
+                ]
                 if not log_df.empty:
-                    tabelas.append(("#### Arquivos com inconsistência", log_df))
+                    tabelas.append(("#### Log de inconsistências/conflitos", log_df))
+
+                arquivos_download = [{
+                    "label": "📥 Baixar SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx atualizado",
+                    "data": buffer_excel,
+                    "file_name": "SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx",
+                    "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                }]
+                if not log_df.empty:
+                    arquivos_download.append({
+                        "label": "📋 Baixar log do vinculador Siscomex",
+                        "data": _dataframe_para_excel_bytes(log_df, sheet_name="Log"),
+                        "file_name": "log_vinculador_siscomex.xlsx",
+                        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    })
 
                 _salvar_downloads(
                     aba,
                     mensagem,
-                    arquivos=[{
-                        "label": "📥 Baixar SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx",
-                        "data": buffer_excel,
-                        "file_name": "SKU_SISCOMEX_ATIVADOS_TODOS_ARQUIVOS.xlsx",
-                        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    }],
+                    arquivos=arquivos_download,
                     tabelas=tabelas,
                 )
                 _render_downloads_salvos(aba)
@@ -395,7 +409,7 @@ def tela_principal():
         """
         <hr style="margin-top: 40px; margin-bottom: 10px;">
         <div style='text-align: center; font-size: 14px;'>
-            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.4<br>
+            Desenvolvido por Guilherme Soares - Supply Chain | Versão 2.5<br>
             Powered by Python + Streamlit |
             <a href='https://br.linkedin.com/in/guilhermensoares' target='_blank' style='text-decoration: none;'>
                 <img src='https://cdn-icons-png.flaticon.com/512/174/174857.png' width='16' style='vertical-align: middle;'/> Acompanhe o criador no Linkedin
